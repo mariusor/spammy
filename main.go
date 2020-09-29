@@ -38,6 +38,7 @@ var (
 		},
 		RedirectURL: fmt.Sprintf("https://brutalinks.local/auth/fedbox/callback"),
 	}
+	selfIRI = Actors.IRI(ServiceAPI).AddPath(OAuthKey)
 )
 
 func fields(c ...client.Ctx) logrus.Fields {
@@ -77,25 +78,31 @@ func C2SSign() client.RequestSignFn {
 }
 
 func main() {
-	selfIRI := Actors.IRI(ServiceAPI).AddPath(OAuthKey)
-	self := ap.Application{ID: selfIRI, Type: ap.ApplicationType, Outbox: h.Outbox.IRI(selfIRI), Inbox: h.Inbox.IRI(selfIRI)}
-
-	o := ap.ObjectNew(ap.ArticleType)
-	o.Content.Set(ap.NilLangRef, ap.Content("Hello, ActivityPub!"))
-
-	a := ap.Create{
-		Type:   ap.CreateType,
-		Object: o,
-		To:     ap.ItemCollection{ServiceAPI, ap.PublicNS},
+	self := ap.Application{
+		ID:     selfIRI,
+		Type:   ap.ApplicationType,
+		Outbox: h.Outbox.IRI(selfIRI),
+		Inbox:  h.Inbox.IRI(selfIRI),
 	}
 
-	iri, act, err := fedbox.ToCollection(h.Outbox.IRI(self), a)
+	create := ap.Create{
+		Type: ap.CreateType,
+		Object: &ap.Article{
+			Type: ap.ArticleType,
+			Content: ap.NaturalLanguageValues{
+				{ap.NilLangRef, ap.Content("Hello, ActivityPub!")},
+			},
+		},
+		To: ap.ItemCollection{ServiceAPI, ap.PublicNS},
+	}
+
+	objectIRI, act, err := fedbox.ToCollection(h.Outbox.IRI(self), create)
 	if err != nil {
 		errf(client.Ctx{"err": err})("saving activity")
 		os.Exit(1)
 	}
-	if iri != "" {
-		ob, err := fedbox.LoadIRI(iri)
+	if objectIRI != "" {
+		ob, err := fedbox.LoadIRI(objectIRI)
 		if err != nil {
 			errf(client.Ctx{"err": err})("loading created object")
 			os.Exit(1)
