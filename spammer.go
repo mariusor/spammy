@@ -1,17 +1,29 @@
-package main
+package spammer
 
 import (
 	"bytes"
 	"encoding/base64"
-	"github.com/docker/docker/pkg/namesgenerator"
-	ap "github.com/go-ap/activitypub"
 	"io/ioutil"
 	"math/rand"
 	"mime"
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/docker/docker/pkg/namesgenerator"
+	ap "github.com/go-ap/activitypub"
+	h "github.com/go-ap/handlers"
 )
+
+const (
+	ServiceAPI  = ap.IRI("https://fedbox.local")
+	OAuthKey    = "aa52ae57-6ec6-4ddd-afcc-1fcbea6a29c0"
+	OAuthSecret = "asd"
+
+	Actors h.CollectionType = "actors"
+)
+
+var SelfIRI = Actors.IRI(ServiceAPI).AddPath(OAuthKey)
 
 var availableExtensions = [...]string{
 	// text
@@ -88,7 +100,7 @@ func getObjectTypes(data []byte) (ap.ActivityVocabularyType, ap.MimeType) {
 	return objectType, ap.MimeType(contentType)
 }
 
-func getRandomItemFromMap(m map[ap.IRI]ap.Item) ap.Item {
+func GetRandomItemFromMap(m map[ap.IRI]ap.Item) ap.Item {
 	pos := rand.Int() % len(m)
 	cnt := 0
 	for _, it := range m {
@@ -128,7 +140,7 @@ func RandomActor() ap.Item {
 	}
 	act.PreferredUsername = act.Name
 	act.Type = ap.PersonType
-	act.AttributedTo = selfIRI
+	act.AttributedTo = SelfIRI
 	act.Icon = RandomImage("image/png")
 	return act
 }
