@@ -1,4 +1,4 @@
-package spammer
+package spammy
 
 import (
 	"bytes"
@@ -16,14 +16,9 @@ import (
 )
 
 const (
-	ServiceAPI  = ap.IRI("https://fedbox.local")
-	OAuthKey    = "aa52ae57-6ec6-4ddd-afcc-1fcbea6a29c0"
-	OAuthSecret = "asd"
-
 	Actors h.CollectionType = "actors"
+	ServiceAPI ap.IRI = ""
 )
-
-var SelfIRI = Actors.IRI(ServiceAPI).AddPath(OAuthKey)
 
 var availableExtensions = [...]string{
 	// text
@@ -133,22 +128,23 @@ func getRandomName() []byte {
 	return []byte(namesgenerator.GetRandomName(0))
 }
 
-func RandomActor() ap.Item {
+func RandomActor(parent ap.Item) ap.Item {
 	act := new(ap.Actor)
 	act.Name = ap.NaturalLanguageValues{
 		{ap.NilLangRef, getRandomName()},
 	}
 	act.PreferredUsername = act.Name
 	act.Type = ap.PersonType
-	act.AttributedTo = SelfIRI
-	act.Icon = RandomImage("image/png")
+	act.AttributedTo = parent
+	act.Icon = RandomImage("image/png", parent)
 	return act
 }
 
-func RandomImage(mime ap.MimeType) ap.Item {
+func RandomImage(mime ap.MimeType, parent ap.Item) ap.Item {
 	img := new(ap.Image)
 	img.Type = ap.ImageType
 	img.MediaType = mime
+	img.AttributedTo = parent
 
 	data := getRandomContentByMimeType(mime)
 	buf := make([]byte, base64.RawStdEncoding.EncodedLen(len(data)))
@@ -159,16 +155,14 @@ func RandomImage(mime ap.MimeType) ap.Item {
 	return img
 }
 
-func RandomObject(actor ap.Item) ap.Item {
+func RandomObject(parent ap.Item) ap.Item {
 	data := getRandomContent()
 	typ, mime := getObjectTypes(data)
 
 	ob := new(ap.Object)
 	ob.Type = typ
 	ob.MediaType = mime
-	if actor != nil {
-		ob.AttributedTo = actor.GetLink()
-	}
+	ob.AttributedTo = parent
 
 	if !strings.Contains(string(mime), "text") {
 		buf := make([]byte, base64.RawStdEncoding.EncodedLen(len(data)))

@@ -1,4 +1,4 @@
-module spammer
+module github.com/mariusor/spammy
 
 go 1.15
 

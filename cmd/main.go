@@ -3,13 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"net/http"
-	"spammer"
 
 	ap "github.com/go-ap/activitypub"
 	"github.com/go-ap/client"
 	h "github.com/go-ap/handlers"
+	"github.com/mariusor/spammy"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 )
@@ -23,20 +24,27 @@ var (
 		client.SetErrorLogger(errf),
 		client.SetInfoLogger(infof),
 	)
+	ServiceAPI  = ap.IRI("https://fedbox.local")
+
+	OAuthKey    = "aa52ae57-6ec6-4ddd-afcc-1fcbea6a29c0"
+	OAuthSecret = "asd"
+
 	config = oauth2.Config{
-		ClientID:     spammer.OAuthKey,
-		ClientSecret: spammer.OAuthSecret,
+		ClientID:     OAuthKey,
+		ClientSecret: OAuthSecret,
 		Endpoint: oauth2.Endpoint{
-			AuthURL:  fmt.Sprintf("%s/oauth/authorize", spammer.ServiceAPI),
-			TokenURL: fmt.Sprintf("%s/oauth/token", spammer.ServiceAPI),
+			AuthURL:  fmt.Sprintf("%s/oauth/authorize", ServiceAPI),
+			TokenURL: fmt.Sprintf("%s/oauth/token", ServiceAPI),
 		},
 		RedirectURL: fmt.Sprintf("https://brutalinks.local/auth/fedbox/callback"),
 	}
+
+	SelfIRI = spammy.Actors.IRI(ServiceAPI).AddPath(OAuthKey)
 	self    = ap.Application{
-		ID:     spammer.SelfIRI,
+		ID:     SelfIRI,
 		Type:   ap.ApplicationType,
-		Outbox: h.Outbox.IRI(spammer.SelfIRI),
-		Inbox:  h.Inbox.IRI(spammer.SelfIRI),
+		Outbox: h.Outbox.IRI(SelfIRI),
+		Inbox:  h.Inbox.IRI(SelfIRI),
 	}
 )
 
@@ -67,7 +75,7 @@ func C2SSign() client.RequestSignFn {
 	return func(req *http.Request) error {
 		if tok == nil {
 			var err error
-			tok, err = config.PasswordCredentialsToken(context.Background(), fmt.Sprintf("oauth-client-app-%s", spammer.OAuthKey), config.ClientSecret)
+			tok, err = config.PasswordCredentialsToken(context.Background(), fmt.Sprintf("oauth-client-app-%s", OAuthKey), config.ClientSecret)
 			if err != nil {
 				return err
 			}
@@ -93,7 +101,7 @@ func CreateActivity(ob ap.Item) (ap.Item, error) {
 	create := ap.Create{
 		Type:   ap.CreateType,
 		Object: ob,
-		To:     ap.ItemCollection{spammer.ServiceAPI, ap.PublicNS},
+		To:     ap.ItemCollection{ServiceAPI, ap.PublicNS},
 	}
 	iri, final, err := fedbox.ToCollection(h.Outbox.IRI(self), create)
 	if err != nil {
@@ -122,13 +130,15 @@ func exec(cnt int, actFn func(ap.Item) (ap.Item, error), itFn func() ap.Item) (m
 	return result, nil
 }
 
+var randomActor = func() ap.Item { return  spammy.RandomActor(self) }
+
 func CreateRandomActors(cnt int) (map[ap.IRI]ap.Item, error) {
-	return exec(cnt, CreateActivity, spammer.RandomActor)
+	return exec(cnt, CreateActivity, randomActor)
 }
 
 func CreateRandomObjects(cnt int, actors map[ap.IRI]ap.Item) (map[ap.IRI]ap.Item, error) {
 	return exec(cnt, CreateActivity, func() ap.Item {
-		return spammer.RandomObject(self)
+		return spammy.RandomObject(self)
 	})
 }
 
@@ -145,8 +155,8 @@ func CreateRandomActivities(cnt int, objects map[ap.IRI]ap.Item, actors map[ap.I
 	result := make(map[ap.IRI]ap.Item)
 	for _, iri := range iris {
 		actRes, err := exec(cnt, ExecActivity, func() ap.Item {
-			act := spammer.RandomActivity(iri)
-			act.CC = append(act.CC, spammer.GetRandomItemFromMap(actors))
+			act := spammy.RandomActivity(iri)
+			act.CC = append(act.CC, spammy.GetRandomItemFromMap(actors))
 			return act
 		})
 		if err != nil {
@@ -161,6 +171,11 @@ func CreateRandomActivities(cnt int, objects map[ap.IRI]ap.Item, actors map[ap.I
 }
 
 func main() {
+	serv := flag.String("url", ServiceAPI.String(), "The FedBOX url to connect to")
+	flag.Parse()
+	if serv != nil {
+		ServiceAPI = ap.IRI(*serv)
+	}
 	printItems := func(items map[ap.IRI]ap.Item) {
 		for _, it := range items {
 			if j, err := json.Marshal(it); err == nil {
