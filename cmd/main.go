@@ -13,7 +13,6 @@ import (
 
 var (
 	logger = logrus.New()
-	fedbox client.ActivityPub = nil
 )
 
 func fields(c ...client.Ctx) logrus.Fields {
@@ -54,12 +53,17 @@ func main() {
 	}
 
 	spammy.FedBOX = client.New(
-		client.TLSConfigSkipVerify(),
+		client.SkipTLSValidation(true),
 		client.SignFn(spammy.C2SSign()),
 		client.SetErrorLogger(errf),
 		client.SetInfoLogger(infof),
 	)
 	spammy.ErrFn = errf
+	err := spammy.LoadApplication()
+	if err != nil {
+		errf()("Error: %s", err)
+		return
+	}
 
 	printItems := func(items map[ap.IRI]ap.Item) {
 		for _, it := range items {

@@ -3,6 +3,7 @@ package spammy
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -10,12 +11,15 @@ import (
 	"math/rand"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/docker/docker/pkg/namesgenerator"
 	ap "github.com/go-ap/activitypub"
 	"github.com/go-ap/client"
+	"github.com/go-ap/errors"
 	h "github.com/go-ap/handlers"
 	"golang.org/x/oauth2"
 )
@@ -25,12 +29,15 @@ const (
 )
 
 var (
-	ServiceAPI  = ap.IRI("https://FedBOX.local")
+	httpClient  = http.DefaultClient
+	ServiceAPI  = ap.IRI("https://fedbox.local")
 
 	OAuthKey    = "aa52ae57-6ec6-4ddd-afcc-1fcbea6a29c0"
 	OAuthSecret = "asd"
-	FedBOX      client.ActivityPub = nil
-	ErrFn        func(c ...client.Ctx) client.LogFn
+
+	Application *ap.Actor          = nil
+	FedBOX      *client.C = nil
+	ErrFn       func(c ...client.Ctx) client.LogFn
 
 	availableExtensions = [...]string{
 		// text
@@ -73,6 +80,16 @@ func init() {
 		}
 		return nil
 	})
+
+	if httpClient.Transport == nil {
+		httpClient.Transport = http.DefaultTransport
+	}
+	if tr, ok := httpClient.Transport.(*http.Transport); ok {
+		if tr.TLSClientConfig == nil {
+			tr.TLSClientConfig = new(tls.Config)
+		}
+		tr.TLSClientConfig.InsecureSkipVerify = true
+	}
 }
 
 var validRandomFiles = make(map[string][][]byte)
@@ -109,6 +126,9 @@ func getObjectTypes(data []byte) (ap.ActivityVocabularyType, ap.MimeType) {
 }
 
 func GetRandomItemFromMap(m map[ap.IRI]ap.Item) ap.Item {
+	if len(m) == 0 {
+		return nil
+	}
 	pos := rand.Int() % len(m)
 	cnt := 0
 	for _, it := range m {
@@ -225,19 +245,36 @@ func RandomActivity(ob ap.Item, parent ap.Item) *ap.Activity {
 		act.Object = ob
 	}
 	act.AttributedTo = parent
-	act.To = ap.ItemCollection{parent.GetLink(), ap.PublicNS}
+	act.Actor = parent
+	act.To = ap.ItemCollection{ServiceAPI, ap.PublicNS}
 
 	return act
 }
 
-func self() ap.Actor {
-	self := SelfIRI()
-	return ap.Application{
-		ID:     self,
-		Type:   ap.ApplicationType,
-		Outbox: h.Outbox.IRI(self),
-		Inbox:  h.Inbox.IRI(self),
+func LoadApplication () error {
+	if FedBOX == nil {
+		panic("FedBOX was not initialized")
 	}
+	actors, err := FedBOX.Object(context.TODO(), SelfIRI())
+	if err != nil {
+		return err
+	}
+	err = ap.OnActor(actors, func(a *ap.Actor) error {
+		Application = a
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func self() ap.Actor {
+	if Application == nil {
+		LoadApplication()
+	}
+	return *Application
+
 }
 
 func SelfIRI() ap.IRI {
@@ -245,24 +282,41 @@ func SelfIRI() ap.IRI {
 }
 
 func config() oauth2.Config {
-	return oauth2.Config{
+	conf := oauth2.Config{
 		ClientID:     OAuthKey,
 		ClientSecret: OAuthSecret,
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  fmt.Sprintf("%s/oauth/authorize", ServiceAPI),
 			TokenURL: fmt.Sprintf("%s/oauth/token", ServiceAPI),
 		},
-		RedirectURL: fmt.Sprintf("https://brutalinks.local/auth/FedBOX/callback"),
 	}
+
+	if Application != nil {
+		url := Application.URL.GetLink()
+		endpoints := Application.Endpoints
+		if endpoints != nil {
+			conf.Endpoint.AuthURL = endpoints.OauthAuthorizationEndpoint.GetLink().String()
+			conf.Endpoint.TokenURL = endpoints.OauthTokenEndpoint.GetLink().String()
+		}
+		conf.RedirectURL= url.String()
+	}
+
+	return conf
 }
 
 func C2SSign() client.RequestSignFn {
 	var tok *oauth2.Token
 	config := config()
+
 	return func(req *http.Request) error {
+		if Application == nil {
+			return nil
+		}
+		req = req.WithContext(context.WithValue(req.Context(), oauth2.HTTPClient, httpClient))
+		handle := Application.PreferredUsername.First().String()
 		if tok == nil {
 			var err error
-			tok, err = config.PasswordCredentialsToken(context.Background(), fmt.Sprintf("oauth-client-app-%s", OAuthKey), config.ClientSecret)
+			tok, err = config.PasswordCredentialsToken(context.Background(), handle, config.ClientSecret)
 			if err != nil {
 				return err
 			}
@@ -272,30 +326,116 @@ func C2SSign() client.RequestSignFn {
 	}
 }
 
-func ExecActivity(act ap.Item, parent ap.Item) (ap.Item, error) {
-	iri, ff, err := FedBOX.ToCollection(h.Outbox.IRI(parent), act)
+func ExecActivity(act ap.Item) (ap.Item, error) {
+	ctxt := context.TODO()
+	iri, ff, err := FedBOX.ToOutbox(ctxt, act)
 	if err != nil {
 		return nil, err
 	}
 	if len(iri) > 0 {
-		return FedBOX.LoadIRI(iri)
+		return FedBOX.Object(ctxt, iri)
 	}
 	fmt.Printf("%v", ff)
 	return nil, nil
 }
 
-func CreateActivity(ob ap.Item, parent ap.Item) (ap.Item, error) {
+type Client struct {
+	Id          string
+	Secret      string
+	RedirectUri string
+	UserData    interface{}
+}
+
+type AuthorizeData struct {
+	Client Client
+	Code string
+	ExpiresIn int32
+	Scope string
+	RedirectUri string
+	State string
+	CreatedAt time.Time
+	UserData interface{}
+	CodeChallenge string
+	CodeChallengeMethod string
+}
+
+func CreateActorActivity(ob ap.Item) (ap.Item, error) {
+	a, err := CreateActivity(ob)
+	if err != nil {
+		return nil, err
+	}
+
+	config := config()
+	config.Scopes = []string{"anonUserCreate"}
+
+	res, err := FedBOX.Get(config.AuthCodeURL(
+		"spammy//test##",
+		oauth2.SetAuthURLParam("actor", a.GetLink().String()),
+	))
+	if err != nil {
+		return nil, err
+	}
+
+	var body []byte
+	if body, err = ioutil.ReadAll(res.Body); err != nil {
+		return nil, err
+	}
+	if res.StatusCode != http.StatusOK {
+		incoming, e := errors.UnmarshalJSON(body)
+		var errs []error
+		if e == nil {
+			errs = make([]error, len(incoming))
+			for i := range incoming {
+				errs[i] = incoming[i]
+			}
+		} else {
+			errs = []error{errors.WrapWithStatus(res.StatusCode, errors.Newf(""), "invalid response")}
+		}
+		ErrFn()("errors: %s", errs)
+		return nil, errs[0]
+	}
+	d := AuthorizeData{}
+	if err := json.Unmarshal(body, &d); err != nil {
+		return nil, err
+	}
+	if d.Code == "" {
+		return nil, err
+	}
+
+	// pos
+	pwChURL := fmt.Sprintf("%s/oauth/pw", ServiceAPI)
+	u, _ := url.Parse(pwChURL)
+	q := u.Query()
+	q.Set("s", d.Code)
+	u.RawQuery = q.Encode()
+	form := url.Values{}
+	pw := "asd"
+
+	form.Add("pw", pw)
+	form.Add("pw-confirm", pw)
+
+	pwChRes, err := http.Post(u.String(), "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+	if body, err = ioutil.ReadAll(pwChRes.Body); err != nil {
+		return nil, err
+	}
+	if pwChRes.StatusCode != http.StatusOK {
+		return nil, err
+	}
+	return a, err
+}
+func CreateActivity(ob ap.Item) (ap.Item, error) {
 	create := ap.Create{
 		Type:   ap.CreateType,
 		Object: ob,
 		To:     ap.ItemCollection{ServiceAPI, ap.PublicNS},
-		Actor: parent,
+		Actor:  self(),
 	}
-	iri, final, err := FedBOX.ToCollection(h.Outbox.IRI(parent), create)
+	ctxt := context.TODO()
+	iri, final, err := FedBOX.ToOutbox(ctxt, create)
 	if err != nil {
 		return final, err
 	}
-	it, err := FedBOX.LoadIRI(iri)
+	it, err := FedBOX.Object(ctxt, iri)
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +445,7 @@ func CreateActivity(ob ap.Item, parent ap.Item) (ap.Item, error) {
 	return final, nil
 }
 
-func exec(cnt int, actFn func(ap.Item, ap.Item) (ap.Item, error), itFn func() ap.Item) (map[ap.IRI]ap.Item, error) {
+func exec(cnt int, actFn func(ap.Item) (ap.Item, error), itFn func() ap.Item) (map[ap.IRI]ap.Item, error) {
 	result := make(map[ap.IRI]ap.Item)
 	for i := 0; i < cnt; i++ {
 		it := itFn()
@@ -314,7 +454,7 @@ func exec(cnt int, actFn func(ap.Item, ap.Item) (ap.Item, error), itFn func() ap
 			parent = o.AttributedTo
 			return nil
 		})
-		ob, err := actFn(it, parent)
+		ob, err := actFn(it)
 		if err != nil {
 			ErrFn()("Error: %s", err)
 			break
@@ -325,7 +465,7 @@ func exec(cnt int, actFn func(ap.Item, ap.Item) (ap.Item, error), itFn func() ap
 }
 
 func CreateRandomActors(cnt int) (map[ap.IRI]ap.Item, error) {
-	return exec(cnt, CreateActivity, func() ap.Item {
+	return exec(cnt, CreateActorActivity, func() ap.Item {
 		return  RandomActor(self())
 	})
 }
