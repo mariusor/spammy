@@ -18,18 +18,15 @@ import (
 
 var (
 	logger = logrus.New()
-	fedbox = client.New(
-		client.TLSConfigSkipVerify(),
-		client.SignFn(C2SSign()),
-		client.SetErrorLogger(errf),
-		client.SetInfoLogger(infof),
-	)
+	fedbox client.ActivityPub = nil
 	ServiceAPI  = ap.IRI("https://fedbox.local")
 
 	OAuthKey    = "aa52ae57-6ec6-4ddd-afcc-1fcbea6a29c0"
 	OAuthSecret = "asd"
+)
 
-	config = oauth2.Config{
+func config() oauth2.Config {
+	return oauth2.Config{
 		ClientID:     OAuthKey,
 		ClientSecret: OAuthSecret,
 		Endpoint: oauth2.Endpoint{
@@ -38,16 +35,20 @@ var (
 		},
 		RedirectURL: fmt.Sprintf("https://brutalinks.local/auth/fedbox/callback"),
 	}
+}
+func SelfIRI() ap.IRI {
+	return spammy.Actors.IRI(ServiceAPI).AddPath(OAuthKey)
+}
 
-	SelfIRI = spammy.Actors.IRI(ServiceAPI).AddPath(OAuthKey)
-	self    = ap.Application{
-		ID:     SelfIRI,
+func self() ap.Actor {
+	self := SelfIRI()
+	return ap.Application{
+		ID:     self,
 		Type:   ap.ApplicationType,
-		Outbox: h.Outbox.IRI(SelfIRI),
-		Inbox:  h.Inbox.IRI(SelfIRI),
+		Outbox: h.Outbox.IRI(self),
+		Inbox:  h.Inbox.IRI(self),
 	}
-)
-
+}
 func fields(c ...client.Ctx) logrus.Fields {
 	cc := make(logrus.Fields)
 	for _, ctx := range c {
@@ -72,6 +73,7 @@ func errf(c ...client.Ctx) client.LogFn {
 
 func C2SSign() client.RequestSignFn {
 	var tok *oauth2.Token
+	config := config()
 	return func(req *http.Request) error {
 		if tok == nil {
 			var err error
@@ -85,8 +87,8 @@ func C2SSign() client.RequestSignFn {
 	}
 }
 
-func ExecActivity(act ap.Item) (ap.Item, error) {
-	iri, ff, err := fedbox.ToCollection(h.Outbox.IRI(self), act)
+func ExecActivity(act ap.Item, parent ap.Item) (ap.Item, error) {
+	iri, ff, err := fedbox.ToCollection(h.Outbox.IRI(parent), act)
 	if err != nil {
 		return nil, err
 	}
@@ -97,13 +99,14 @@ func ExecActivity(act ap.Item) (ap.Item, error) {
 	return nil, nil
 }
 
-func CreateActivity(ob ap.Item) (ap.Item, error) {
+func CreateActivity(ob ap.Item, parent ap.Item) (ap.Item, error) {
 	create := ap.Create{
 		Type:   ap.CreateType,
 		Object: ob,
 		To:     ap.ItemCollection{ServiceAPI, ap.PublicNS},
+		Actor: parent,
 	}
-	iri, final, err := fedbox.ToCollection(h.Outbox.IRI(self), create)
+	iri, final, err := fedbox.ToCollection(h.Outbox.IRI(parent), create)
 	if err != nil {
 		return final, err
 	}
@@ -117,28 +120,34 @@ func CreateActivity(ob ap.Item) (ap.Item, error) {
 	return final, nil
 }
 
-func exec(cnt int, actFn func(ap.Item) (ap.Item, error), itFn func() ap.Item) (map[ap.IRI]ap.Item, error) {
+func exec(cnt int, actFn func(ap.Item, ap.Item) (ap.Item, error), itFn func() ap.Item) (map[ap.IRI]ap.Item, error) {
 	result := make(map[ap.IRI]ap.Item)
 	for i := 0; i < cnt; i++ {
-		ob, err := actFn(itFn())
+		it := itFn()
+		var parent ap.Item
+		ap.OnObject(it, func(o *ap.Object) error {
+			parent = o.AttributedTo
+			return nil
+		})
+		ob, err := actFn(it, parent)
 		if err != nil {
 			errf()("Error: %s", err)
-			continue
+			break
 		}
 		result[ob.GetLink()] = ob
 	}
 	return result, nil
 }
 
-var randomActor = func() ap.Item { return  spammy.RandomActor(self) }
-
 func CreateRandomActors(cnt int) (map[ap.IRI]ap.Item, error) {
-	return exec(cnt, CreateActivity, randomActor)
+	return exec(cnt, CreateActivity, func() ap.Item {
+		return  spammy.RandomActor(self())
+	})
 }
 
 func CreateRandomObjects(cnt int, actors map[ap.IRI]ap.Item) (map[ap.IRI]ap.Item, error) {
 	return exec(cnt, CreateActivity, func() ap.Item {
-		return spammy.RandomObject(self)
+		return spammy.RandomObject(self())
 	})
 }
 
@@ -154,9 +163,10 @@ func CreateRandomActivities(cnt int, objects map[ap.IRI]ap.Item, actors map[ap.I
 	}
 	result := make(map[ap.IRI]ap.Item)
 	for _, iri := range iris {
+		parent := spammy.GetRandomItemFromMap(actors)
 		actRes, err := exec(cnt, ExecActivity, func() ap.Item {
-			act := spammy.RandomActivity(iri)
-			act.CC = append(act.CC, spammy.GetRandomItemFromMap(actors))
+			act := spammy.RandomActivity(iri, parent)
+			act.CC = append(act.CC, self())
 			return act
 		})
 		if err != nil {
@@ -172,10 +182,24 @@ func CreateRandomActivities(cnt int, objects map[ap.IRI]ap.Item, actors map[ap.I
 
 func main() {
 	serv := flag.String("url", ServiceAPI.String(), "The FedBOX url to connect to")
+	key := flag.String("client", OAuthKey, "The FedBOX application uuid")
+	secret := flag.String("secret", OAuthSecret, "The FedBOX application secret")
 	flag.Parse()
 	if serv != nil {
 		ServiceAPI = ap.IRI(*serv)
 	}
+	if key != nil {
+		OAuthKey = *key
+	}
+	if secret != nil {
+		OAuthSecret = *secret
+	}
+	fedbox = client.New(
+		client.TLSConfigSkipVerify(),
+		client.SignFn(C2SSign()),
+		client.SetErrorLogger(errf),
+		client.SetInfoLogger(infof),
+	)
 	printItems := func(items map[ap.IRI]ap.Item) {
 		for _, it := range items {
 			if j, err := json.Marshal(it); err == nil {

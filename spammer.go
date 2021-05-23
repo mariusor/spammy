@@ -205,13 +205,14 @@ func getActivityTypeByObject(ob ap.Item) ap.ActivityVocabularyType {
 	return validForObjectActivityTypes[rand.Int()%len(validForObjectActivityTypes)]
 }
 
-func RandomActivity(ob ap.Item) *ap.Activity {
+func RandomActivity(ob ap.Item, parent ap.Item) *ap.Activity {
 	act := new(ap.Activity)
 	act.Type = getActivityTypeByObject(ob)
 	if ob != nil {
 		act.Object = ob
 	}
-	act.To = ap.ItemCollection{ServiceAPI, ap.PublicNS}
+	act.AttributedTo = parent
+	act.To = ap.ItemCollection{parent.GetLink(), ap.PublicNS}
 
 	return act
 }
