@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/docker/docker/pkg/namesgenerator"
@@ -269,10 +270,11 @@ func LoadApplication () error {
 	return nil
 }
 
+var s = sync.Once{}
 func self() ap.Actor {
-	if Application == nil {
+	s.Do(func() {
 		LoadApplication()
-	}
+	})
 	return *Application
 
 }
