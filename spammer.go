@@ -14,7 +14,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/docker/docker/pkg/namesgenerator"
 	ap "github.com/go-ap/activitypub"
@@ -214,16 +213,17 @@ func RandomObject(parent ap.Item) ap.Item {
 	return ob
 }
 
-var validForObjectActivityTypes = [...]ap.ActivityVocabularyType{
+var validForObjectActivityTypes = ap.ActivityVocabularyTypes{
 	ap.LikeType,
 	ap.DislikeType,
 	ap.DeleteType,
 	ap.FlagType,
 	ap.BlockType,
 	ap.FollowType,
+	ap.IgnoreType,
 }
 
-var validForActivityActivityTypes = [...]ap.ActivityVocabularyType{
+var validForActivityActivityTypes = ap.ActivityVocabularyTypes{
 	ap.UndoType,
 }
 
@@ -239,6 +239,10 @@ func getActivityTypeByObject(ob ap.Item) ap.ActivityVocabularyType {
 	return validForObjectActivityTypes[rand.Int()%len(validForObjectActivityTypes)]
 }
 
+func getRandomReason() []byte {
+	return []byte("A random reason for a stupid activity")
+}
+
 func RandomActivity(ob ap.Item, parent ap.Item) *ap.Activity {
 	act := new(ap.Activity)
 	act.Type = getActivityTypeByObject(ob)
@@ -248,6 +252,15 @@ func RandomActivity(ob ap.Item, parent ap.Item) *ap.Activity {
 	act.AttributedTo = parent
 	act.Actor = parent
 	act.To = ap.ItemCollection{ServiceAPI, ap.PublicNS}
+
+	if typesNeedReasons.Contains(act.Type) {
+		act.Content = ap.NaturalLanguageValues{
+			{ap.NilLangRef, getRandomReason()},
+		}
+		act.Summary = ap.NaturalLanguageValues{
+			{ap.NilLangRef, getRandomReason()},
+		}
+	}
 
 	return act
 }
@@ -500,6 +513,8 @@ func CreateRandomObjects(cnt int, actors map[ap.IRI]ap.Item) (map[ap.IRI]ap.Item
 		return RandomObject(actor)
 	})
 }
+
+var typesNeedReasons = ap.ActivityVocabularyTypes{ap.BlockType, ap.FlagType, ap.IgnoreType}
 
 func CreateRandomActivities(cnt int, objects map[ap.IRI]ap.Item, actors map[ap.IRI]ap.Item) (map[ap.IRI]ap.Item, error) {
 	iris := make([]ap.IRI, len(objects))
