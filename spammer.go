@@ -15,7 +15,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/docker/docker/pkg/namesgenerator"
 	ap "github.com/go-ap/activitypub"
@@ -27,6 +26,7 @@ import (
 
 const (
 	Actors h.CollectionType = "actors"
+	DefaultPw = "asd"
 )
 
 var (
@@ -159,7 +159,7 @@ func getRandomContent() []byte {
 }
 
 func getRandomName() []byte {
-	return []byte(namesgenerator.GetRandomName(0))
+	return []byte(namesgenerator.GetRandomName(10))
 }
 
 func RandomActor(parent ap.Item) ap.Item {
@@ -170,7 +170,7 @@ func RandomActor(parent ap.Item) ap.Item {
 	act.PreferredUsername = act.Name
 	act.Type = ap.PersonType
 	act.AttributedTo = parent
-	act.Icon = RandomImage("image/png", parent)
+	act.Icon = RandomImage("image/png", parent.GetLink())
 	return act
 }
 
@@ -283,7 +283,7 @@ func SelfIRI() ap.IRI {
 	return Actors.IRI(ServiceAPI).AddPath(OAuthKey)
 }
 
-func config() oauth2.Config {
+func config(act *ap.Actor) oauth2.Config {
 	conf := oauth2.Config{
 		ClientID:     OAuthKey,
 		ClientSecret: OAuthSecret,
@@ -293,44 +293,67 @@ func config() oauth2.Config {
 		},
 	}
 
-	if Application != nil {
-		url := Application.URL.GetLink()
-		endpoints := Application.Endpoints
+	if act == nil {
+		act = Application
+	}
+	if act != nil {
+		endpoints := act.Endpoints
 		if endpoints != nil {
 			conf.Endpoint.AuthURL = endpoints.OauthAuthorizationEndpoint.GetLink().String()
 			conf.Endpoint.TokenURL = endpoints.OauthTokenEndpoint.GetLink().String()
 		}
-		conf.RedirectURL= url.String()
+		if act.URL != nil {
+			conf.RedirectURL= act.URL.GetLink().String()
+		}
 	}
 
 	return conf
 }
 
-func C2SSign() client.RequestSignFn {
-	var tok *oauth2.Token
-	config := config()
+func C2SSign(act *ap.Actor) client.RequestSignFn {
+	config := config(act)
 
+	handle := act.PreferredUsername.First().String()
+	if len(handle) == 0 {
+		handle = act.Name.First().String()
+	}
+	if len(handle) == 0 {
+		return func(r *http.Request) error { return nil }
+	}
 	return func(req *http.Request) error {
-		if Application == nil {
-			return nil
-		}
+		// set a custom http client to be used by the OAuth2 package, in our case, it has InsecureTLSCheck disabled
 		req = req.WithContext(context.WithValue(req.Context(), oauth2.HTTPClient, httpClient))
-		handle := Application.PreferredUsername.First().String()
-		if tok == nil {
-			var err error
-			tok, err = config.PasswordCredentialsToken(context.Background(), handle, config.ClientSecret)
-			if err != nil {
-				return err
-			}
+		tok, err := config.PasswordCredentialsToken(context.TODO(), handle, DefaultPw)
+		if err != nil {
+			return err
 		}
 		tok.SetAuthHeader(req)
 		return nil
 	}
 }
 
-func ExecActivity(act ap.Item) (ap.Item, error) {
+func setSignFn(f *client.C, activity ap.Item) {
+	ap.OnActivity(activity, func(a *ap.Activity) error {
+		actor, err := ap.ToActor(a.Actor)
+		if err != nil {
+			return err
+		}
+		f.SignFn(C2SSign(actor))
+		return nil
+	})
+}
+
+func ExecActivity(activity ap.Item) (ap.Item, error) {
 	ctxt := context.TODO()
-	iri, ff, err := FedBOX.ToOutbox(ctxt, act)
+
+	setSignFn(FedBOX, activity)
+
+	ap.OnActivity(activity, func(act *ap.Activity) error {
+		act.Actor = ap.FlattenToIRI(act.Actor)
+		act.Object = ap.FlattenProperties(act.Object)
+		return nil
+	})
+	iri, ff, err := FedBOX.ToOutbox(ctxt, activity)
 	if err != nil {
 		return nil, err
 	}
@@ -341,24 +364,9 @@ func ExecActivity(act ap.Item) (ap.Item, error) {
 	return nil, nil
 }
 
-type Client struct {
-	Id          string
-	Secret      string
-	RedirectUri string
-	UserData    interface{}
-}
-
 type AuthorizeData struct {
-	Client Client
 	Code string
-	ExpiresIn int32
-	Scope string
-	RedirectUri string
 	State string
-	CreatedAt time.Time
-	UserData interface{}
-	CodeChallenge string
-	CodeChallengeMethod string
 }
 
 func CreateActorActivity(ob ap.Item) (ap.Item, error) {
@@ -367,7 +375,8 @@ func CreateActorActivity(ob ap.Item) (ap.Item, error) {
 		return nil, err
 	}
 
-	config := config()
+	self, _ := ap.ToActor(ob)
+	config := config(self)
 	config.Scopes = []string{"anonUserCreate"}
 
 	res, err := FedBOX.Get(config.AuthCodeURL(
@@ -411,10 +420,9 @@ func CreateActorActivity(ob ap.Item) (ap.Item, error) {
 	q.Set("s", d.Code)
 	u.RawQuery = q.Encode()
 	form := url.Values{}
-	pw := "asd"
 
-	form.Add("pw", pw)
-	form.Add("pw-confirm", pw)
+	form.Add("pw", DefaultPw)
+	form.Add("pw-confirm", DefaultPw)
 
 	pwChRes, err := http.Post(u.String(), "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 	if body, err = ioutil.ReadAll(pwChRes.Body); err != nil {
@@ -425,22 +433,38 @@ func CreateActorActivity(ob ap.Item) (ap.Item, error) {
 	}
 	return a, err
 }
+
 func CreateActivity(ob ap.Item) (ap.Item, error) {
 	create := ap.Create{
 		Type:   ap.CreateType,
 		Object: ob,
 		To:     ap.ItemCollection{ServiceAPI, ap.PublicNS},
-		Actor:  self(),
 	}
+	ap.OnObject(ob, func(o *ap.Object) error {
+		if o.AttributedTo != nil {
+			create.Actor, _ = ap.ToActor(o.AttributedTo)
+		}
+		return nil
+	})
+
 	ctxt := context.TODO()
+	setSignFn(FedBOX, create)
+
+	ap.OnActivity(create, func(act *ap.Activity) error {
+		act.Actor = ap.FlattenToIRI(act.Actor)
+		act.Object = ap.FlattenProperties(act.Object)
+		return nil
+	})
 	iri, final, err := FedBOX.ToOutbox(ctxt, create)
 	if err != nil {
 		return final, err
 	}
+
 	it, err := FedBOX.Object(ctxt, iri)
 	if err != nil {
 		return nil, err
 	}
+
 	if j, err := json.Marshal(it); err == nil {
 		fmt.Printf("Activity: %s\n", j)
 	}
@@ -451,11 +475,6 @@ func exec(cnt int, actFn func(ap.Item) (ap.Item, error), itFn func() ap.Item) (m
 	result := make(map[ap.IRI]ap.Item)
 	for i := 0; i < cnt; i++ {
 		it := itFn()
-		var parent ap.Item
-		ap.OnObject(it, func(o *ap.Object) error {
-			parent = o.AttributedTo
-			return nil
-		})
 		ob, err := actFn(it)
 		if err != nil {
 			ErrFn()("Error: %s", err)
@@ -468,13 +487,14 @@ func exec(cnt int, actFn func(ap.Item) (ap.Item, error), itFn func() ap.Item) (m
 
 func CreateRandomActors(cnt int) (map[ap.IRI]ap.Item, error) {
 	return exec(cnt, CreateActorActivity, func() ap.Item {
-		return  RandomActor(self())
+		return RandomActor(self())
 	})
 }
 
 func CreateRandomObjects(cnt int, actors map[ap.IRI]ap.Item) (map[ap.IRI]ap.Item, error) {
 	return exec(cnt, CreateActivity, func() ap.Item {
-		return RandomObject(self())
+		actor := GetRandomItemFromMap(actors)
+		return RandomObject(actor)
 	})
 }
 
