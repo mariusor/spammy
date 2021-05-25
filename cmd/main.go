@@ -9,6 +9,7 @@ import (
 	"github.com/mariusor/spammy"
 	"github.com/sirupsen/logrus"
 	"os"
+	"time"
 )
 
 const (
@@ -48,6 +49,17 @@ func main() {
 		key string
 		secret string
 	)
+	logger.Formatter = &logrus.TextFormatter{
+		ForceColors:            true,
+		TimestampFormat:        time.StampMilli,
+		FullTimestamp:          true,
+		DisableSorting:         true,
+		DisableLevelTruncation: false,
+		PadLevelText:           true,
+		QuoteEmptyFields:       false,
+	}
+	logger.Out = os.Stdout
+	logger.Level = logrus.DebugLevel
 	serv := flag.String("url", spammy.ServiceAPI.String(), "The FedBOX url to connect to")
 	flag.StringVar(&key, "client", "", "The FedBOX application uuid")
 	flag.StringVar(&secret, "secret", "", "The FedBOX application secret")
@@ -58,6 +70,7 @@ func main() {
 
 	spammy.FedBOX = client.New(client.SkipTLSValidation(true), client.SetErrorLogger(errf), client.SetInfoLogger(infof))
 	spammy.ErrFn = errf
+	spammy.InfFn = infof
 
 	printItems := func(items map[ap.IRI]ap.Item) {
 		for _, it := range items {

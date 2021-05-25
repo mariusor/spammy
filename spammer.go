@@ -38,6 +38,7 @@ var (
 	Application *ap.Actor          = nil
 	FedBOX      *client.C = nil
 	ErrFn       func(c ...client.Ctx) client.LogFn
+	InfFn       func(c ...client.Ctx) client.LogFn
 
 	availableExtensions = [...]string{
 		// text
@@ -285,7 +286,6 @@ func LoadApplication (key string) error {
 
 func self() ap.Actor {
 	return *Application
-
 }
 
 func SelfIRI(key string) ap.IRI {
@@ -478,7 +478,7 @@ func CreateActivity(ob ap.Item) (ap.Item, error) {
 	}
 
 	if j, err := json.Marshal(it); err == nil {
-		fmt.Printf("Activity: %s\n", j)
+		InfFn()("Activity: %s\n", j)
 	}
 	return final, nil
 }
@@ -489,7 +489,7 @@ func exec(cnt int, actFn func(ap.Item) (ap.Item, error), itFn func() ap.Item) (m
 		it := itFn()
 		ob, err := actFn(it)
 		if err != nil {
-			ErrFn()("Error: %s", err)
+			ErrFn()(err.Error())
 			break
 		}
 		result[ob.GetLink()] = ob
@@ -535,7 +535,7 @@ func CreateRandomActivities(cnt int, objects map[ap.IRI]ap.Item, actors map[ap.I
 			return act
 		})
 		if err != nil {
-			ErrFn()("Error: %s", err)
+			ErrFn()(err.Error())
 			continue
 		}
 		for k, v := range actRes {

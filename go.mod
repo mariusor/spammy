@@ -8,7 +8,7 @@ require (
 	github.com/docker/docker v20.10.6+incompatible
 	github.com/go-ap/activitypub v0.0.0-20210403114333-558da3636016
 	github.com/go-ap/client v0.0.0-20210403114520-1b89283e01f0
-	github.com/go-ap/errors v0.0.0-20210218123445-4466eca2f4ec // indirect
+	github.com/go-ap/errors v0.0.0-20210218123445-4466eca2f4ec
 	github.com/go-ap/handlers v0.0.0-20210403114447-058e93c4936c
 	github.com/sirupsen/logrus v1.7.0
 	github.com/stretchr/testify v1.5.1 // indirect
