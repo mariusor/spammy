@@ -8,6 +8,7 @@ import (
 	"github.com/go-ap/client"
 	"github.com/mariusor/spammy"
 	"github.com/sirupsen/logrus"
+	"os"
 )
 
 const (
@@ -43,26 +44,20 @@ func errf(c ...client.Ctx) client.LogFn {
 }
 
 func main() {
+	var (
+		key string
+		secret string
+	)
 	serv := flag.String("url", spammy.ServiceAPI.String(), "The FedBOX url to connect to")
-	key := flag.String("client", spammy.OAuthKey, "The FedBOX application uuid")
-	secret := flag.String("secret", spammy.OAuthSecret, "The FedBOX application secret")
+	flag.StringVar(&key, "client", "", "The FedBOX application uuid")
+	flag.StringVar(&secret, "secret", "", "The FedBOX application secret")
 	flag.Parse()
 	if serv != nil {
 		spammy.ServiceAPI = ap.IRI(*serv)
 	}
-	if key != nil {
-		spammy.OAuthKey = *key
-	}
-	if secret != nil {
-		spammy.OAuthSecret = *secret
-	}
 
 	spammy.FedBOX = client.New(client.SkipTLSValidation(true), client.SetErrorLogger(errf), client.SetInfoLogger(infof))
 	spammy.ErrFn = errf
-	if err := spammy.LoadApplication(); err != nil {
-		errf()("Error: %s", err)
-		return
-	}
 
 	printItems := func(items map[ap.IRI]ap.Item) {
 		for _, it := range items {
@@ -71,10 +66,35 @@ func main() {
 			}
 		}
 	}
+	if secret != "" {
+		spammy.OAuthSecret = secret
+	}
+	if key != "" {
+		spammy.OAuthKey = key
+		if err := spammy.LoadApplication(key); err != nil {
+			errf()("Error: %s", err)
+			return
+		}
+	} else {
+		app, err := spammy.CreateIndieAuthApplication()
+		if err != nil {
+			errf()(err.Error())
+			os.Exit(1)
+		}
+		if app != nil {
+			spammy.Application, _ = ap.ToActor(app)
+		}
+	}
+
 	actors, _ := spammy.CreateRandomActors(DefaultActorCount)
 	printItems(actors)
+
 	objects, _ := spammy.CreateRandomObjects(DefaultObjectCount, actors)
 	printItems(objects)
+
+	for iri, actor := range actors {
+		objects[iri] = actor
+	}
 	activities, _ := spammy.CreateRandomActivities(DefaultActivitiesCount, objects, actors)
 	printItems(activities)
 }

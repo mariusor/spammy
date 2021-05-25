@@ -252,11 +252,11 @@ func RandomActivity(ob ap.Item, parent ap.Item) *ap.Activity {
 	return act
 }
 
-func LoadApplication () error {
+func LoadApplication (key string) error {
 	if FedBOX == nil {
 		panic("FedBOX was not initialized")
 	}
-	actors, err := FedBOX.Object(context.TODO(), SelfIRI())
+	actors, err := FedBOX.Object(context.TODO(), SelfIRI(key))
 	if err != nil {
 		return err
 	}
@@ -270,17 +270,13 @@ func LoadApplication () error {
 	return nil
 }
 
-var s = sync.Once{}
 func self() ap.Actor {
-	s.Do(func() {
-		LoadApplication()
-	})
 	return *Application
 
 }
 
-func SelfIRI() ap.IRI {
-	return Actors.IRI(ServiceAPI).AddPath(OAuthKey)
+func SelfIRI(key string) ap.IRI {
+	return Actors.IRI(ServiceAPI).AddPath(key)
 }
 
 func config(act *ap.Actor) oauth2.Config {
@@ -334,6 +330,9 @@ func C2SSign(act *ap.Actor) client.RequestSignFn {
 
 func setSignFn(f *client.C, activity ap.Item) {
 	ap.OnActivity(activity, func(a *ap.Activity) error {
+		if a.Actor == nil {
+			return errors.Newf("Invalid actor when trying to sign C2S request")
+		}
 		actor, err := ap.ToActor(a.Actor)
 		if err != nil {
 			return err
@@ -483,6 +482,10 @@ func exec(cnt int, actFn func(ap.Item) (ap.Item, error), itFn func() ap.Item) (m
 		result[ob.GetLink()] = ob
 	}
 	return result, nil
+}
+
+func CreateIndieAuthApplication() (ap.Item, error) {
+	return nil, nil
 }
 
 func CreateRandomActors(cnt int) (map[ap.IRI]ap.Item, error) {
