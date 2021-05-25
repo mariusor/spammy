@@ -10,6 +10,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	DefaultActorCount      = 20
+	DefaultObjectCount     = 100
+	DefaultActivitiesCount = 100
+)
 
 var (
 	logger = logrus.New()
@@ -52,15 +57,9 @@ func main() {
 		spammy.OAuthSecret = *secret
 	}
 
-	spammy.FedBOX = client.New(
-		client.SkipTLSValidation(true),
-		client.SignFn(spammy.C2SSign()),
-		client.SetErrorLogger(errf),
-		client.SetInfoLogger(infof),
-	)
+	spammy.FedBOX = client.New(client.SkipTLSValidation(true), client.SetErrorLogger(errf), client.SetInfoLogger(infof))
 	spammy.ErrFn = errf
-	err := spammy.LoadApplication()
-	if err != nil {
+	if err := spammy.LoadApplication(); err != nil {
 		errf()("Error: %s", err)
 		return
 	}
@@ -72,10 +71,10 @@ func main() {
 			}
 		}
 	}
-	actors, _ := spammy.CreateRandomActors(20)
+	actors, _ := spammy.CreateRandomActors(DefaultActorCount)
 	printItems(actors)
-	objects, _ := spammy.CreateRandomObjects(100, actors)
+	objects, _ := spammy.CreateRandomObjects(DefaultObjectCount, actors)
 	printItems(objects)
-	activities, _ := spammy.CreateRandomActivities(50, objects, actors)
+	activities, _ := spammy.CreateRandomActivities(DefaultActivitiesCount, objects, actors)
 	printItems(activities)
 }
