@@ -21,6 +21,7 @@ import (
 	"github.com/go-ap/errors"
 	h "github.com/go-ap/handlers"
 	"golang.org/x/oauth2"
+	"hawx.me/code/indieauth"
 )
 
 const (
@@ -497,8 +498,31 @@ func exec(cnt int, actFn func(ap.Item) (ap.Item, error), itFn func() ap.Item) (m
 	return result, nil
 }
 
-func CreateIndieAuthApplication() (ap.Item, error) {
-	return nil, nil
+func CreateIndieAuthApplication(me *ap.Person) (ap.Item, error) {
+	auth := config(me)
+	authURL, err := url.Parse(auth.Endpoint.AuthURL)
+	if err != nil {
+		return nil, err
+	}
+	tokURL, err := url.Parse(auth.Endpoint.TokenURL)
+	if err != nil {
+		return nil, err
+	}
+	// first we get the configuration for our client
+	config, _ := indieauth.Authentication("https://brutalinks.git", "https://brutalinks.git/auth/fedbox/callback")
+	config.Client = httpClient
+
+	endpoints := indieauth.Endpoints {
+		Authorization: authURL,
+		Token: tokURL,
+	}
+	profile, err := config.Exchange(endpoints, "test")
+	if err != nil {
+		return nil, err
+	}
+	ErrFn()("Profile : %#v", profile)
+
+	return nil, err
 }
 
 func CreateRandomActors(cnt int) (map[ap.IRI]ap.Item, error) {
