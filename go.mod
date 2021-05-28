@@ -14,5 +14,6 @@ require (
 	github.com/sirupsen/logrus v1.7.0
 	github.com/stretchr/testify v1.5.1 // indirect
 	golang.org/x/oauth2 v0.0.0-20200902213428-5d25da1a8d43
+	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect
 	hawx.me/code/indieauth v1.0.2
 )

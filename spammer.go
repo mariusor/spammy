@@ -14,6 +14,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/docker/docker/pkg/namesgenerator"
 	ap "github.com/go-ap/activitypub"
@@ -21,6 +23,7 @@ import (
 	"github.com/go-ap/errors"
 	h "github.com/go-ap/handlers"
 	"golang.org/x/oauth2"
+	"golang.org/x/sync/errgroup"
 	"hawx.me/code/indieauth"
 )
 
@@ -222,7 +225,7 @@ var validForObjectActivityTypes = ap.ActivityVocabularyTypes{
 	ap.FlagType,
 	ap.BlockType,
 	ap.FollowType,
-	ap.IgnoreType,
+//	ap.IgnoreType,
 }
 
 var validForActivityActivityTypes = ap.ActivityVocabularyTypes{
@@ -320,10 +323,10 @@ func config(act *ap.Actor) oauth2.Config {
 	return conf
 }
 
-func C2SSign(act *ap.Actor) client.RequestSignFn {
+func C2SSign(ctxt context.Context, act *ap.Actor) client.RequestSignFn {
 	config := config(act)
 
-	handle := act.PreferredUsername.First().String()
+	handle := act.GetID().String()
 	if len(handle) == 0 {
 		handle = act.Name.First().String()
 	}
@@ -332,8 +335,9 @@ func C2SSign(act *ap.Actor) client.RequestSignFn {
 	}
 	return func(req *http.Request) error {
 		// set a custom http client to be used by the OAuth2 package, in our case, it has InsecureTLSCheck disabled
-		req = req.WithContext(context.WithValue(req.Context(), oauth2.HTTPClient, httpClient))
-		tok, err := config.PasswordCredentialsToken(context.TODO(), handle, DefaultPw)
+		ctxt = context.WithValue(ctxt, oauth2.HTTPClient, httpClient)
+		time.Sleep(100*time.Millisecond)
+		tok, err := config.PasswordCredentialsToken(ctxt, handle, DefaultPw)
 		if err != nil {
 			return err
 		}
@@ -342,30 +346,31 @@ func C2SSign(act *ap.Actor) client.RequestSignFn {
 	}
 }
 
-func setSignFn(f *client.C, activity ap.Item) {
-	ap.OnActivity(activity, func(a *ap.Activity) error {
+func setSignFn(ctxt context.Context, f *client.C, activity ap.Item) error {
+	return ap.OnActivity(activity, func(a *ap.Activity) error {
 		if a.Actor == nil {
 			return errors.Newf("Invalid actor when trying to sign C2S request")
 		}
 		actor, err := ap.ToActor(a.Actor)
-		if err != nil {
-			return err
+		if actor != nil {
+			f.SignFn(C2SSign(ctxt, actor))
 		}
-		f.SignFn(C2SSign(actor))
-		return nil
+		return err
 	})
 }
 
-func ExecActivity(activity ap.Item) (ap.Item, error) {
-	ctxt := context.TODO()
-
-	setSignFn(FedBOX, activity)
+func ExecActivity(ctxt context.Context, activity ap.Item) (ap.Item, error) {
+	err := setSignFn(ctxt, FedBOX, activity)
+	if err != nil {
+		return nil, err
+	}
 
 	ap.OnActivity(activity, func(act *ap.Activity) error {
 		act.Actor = ap.FlattenToIRI(act.Actor)
 		act.Object = ap.FlattenProperties(act.Object)
 		return nil
 	})
+	time.Sleep(50*time.Millisecond)
 	iri, ff, err := FedBOX.ToOutbox(ctxt, activity)
 	if err != nil {
 		return nil, err
@@ -382,8 +387,8 @@ type AuthorizeData struct {
 	State string
 }
 
-func CreateActorActivity(ob ap.Item) (ap.Item, error) {
-	a, err := CreateActivity(ob)
+func CreateActorActivity(ctxt context.Context, ob ap.Item) (ap.Item, error) {
+	a, err := CreateActivity(ctxt, ob)
 	if err != nil {
 		return nil, err
 	}
@@ -392,7 +397,7 @@ func CreateActorActivity(ob ap.Item) (ap.Item, error) {
 	config := config(self)
 	config.Scopes = []string{"anonUserCreate"}
 
-	res, err := FedBOX.Get(config.AuthCodeURL(
+	res, err := FedBOX.CtxGet(ctxt, config.AuthCodeURL(
 		"spammy//test##",
 		oauth2.SetAuthURLParam("actor", a.GetLink().String()),
 	))
@@ -447,27 +452,37 @@ func CreateActorActivity(ob ap.Item) (ap.Item, error) {
 	return a, err
 }
 
-func CreateActivity(ob ap.Item) (ap.Item, error) {
+func CreateActivity(ctxt context.Context, ob ap.Item) (ap.Item, error) {
 	create := ap.Create{
 		Type:   ap.CreateType,
 		Object: ob,
 		To:     ap.ItemCollection{ServiceAPI, ap.PublicNS},
 	}
-	ap.OnObject(ob, func(o *ap.Object) error {
+	err := ap.OnObject(ob, func(o *ap.Object) error {
 		if o.AttributedTo != nil {
 			create.Actor, _ = ap.ToActor(o.AttributedTo)
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
 
-	ctxt := context.TODO()
-	setSignFn(FedBOX, create)
+	err = setSignFn(ctxt, FedBOX, create)
+	if err != nil {
+		return nil, err
+	}
 
-	ap.OnActivity(create, func(act *ap.Activity) error {
+	err = ap.OnActivity(create, func(act *ap.Activity) error {
 		act.Actor = ap.FlattenToIRI(act.Actor)
 		act.Object = ap.FlattenProperties(act.Object)
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	time.Sleep(50*time.Millisecond)
 	iri, final, err := FedBOX.ToOutbox(ctxt, create)
 	if err != nil {
 		return final, err
@@ -484,16 +499,32 @@ func CreateActivity(ob ap.Item) (ap.Item, error) {
 	return final, nil
 }
 
-func exec(cnt int, actFn func(ap.Item) (ap.Item, error), itFn func() ap.Item) (map[ap.IRI]ap.Item, error) {
+const maxConcurrency = 5
+
+func exec(cnt int, actFn func(context.Context, ap.Item) (ap.Item, error), itFn func() ap.Item) (map[ap.IRI]ap.Item, error) {
 	result := make(map[ap.IRI]ap.Item)
-	for i := 0; i < cnt; i++ {
-		it := itFn()
-		ob, err := actFn(it)
-		if err != nil {
-			ErrFn()(err.Error())
-			break
+	m := sync.Mutex{}
+
+	g, ctx := errgroup.WithContext(context.TODO())
+
+	for i := 0; i < cnt; i += maxConcurrency {
+		for j := i; j < i+maxConcurrency && j < cnt; j++ {
+			g.Go(func() error {
+				dtx, cancelFn := context.WithTimeout(ctx, 5*time.Second)
+				defer cancelFn()
+
+				ob, err := actFn(dtx, itFn())
+				if err == nil && ob != nil {
+					m.Lock()
+					defer m.Unlock()
+					result[ob.GetLink()] = ob
+				}
+				return err
+			})
 		}
-		result[ob.GetLink()] = ob
+		if err := g.Wait(); err != nil {
+			ErrFn()(err.Error())
+		}
 	}
 	return result, nil
 }
