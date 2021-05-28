@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"os"
+	"time"
+
 	ap "github.com/go-ap/activitypub"
 	"github.com/go-ap/client"
 	"github.com/mariusor/spammy"
+	"github.com/peterbourgon/ff"
 	"github.com/sirupsen/logrus"
-	"os"
-	"time"
 )
 
 const (
@@ -45,9 +47,11 @@ func errf(c ...client.Ctx) client.LogFn {
 }
 
 func main() {
+	fs := flag.NewFlagSet("spammy", flag.ExitOnError)
 	var (
-		key string
-		secret string
+		key    = fs.String("client", "", "The application Uuid")
+		secret = fs.String("secret", "", "The application secret")
+		serv   = fs.String("url", spammy.ServiceAPI.String(), "The FedBOX url to connect to")
 	)
 	logger.Formatter = &logrus.TextFormatter{
 		ForceColors:            true,
@@ -60,10 +64,8 @@ func main() {
 	}
 	logger.Out = os.Stdout
 	logger.Level = logrus.DebugLevel
-	serv := flag.String("url", spammy.ServiceAPI.String(), "The FedBOX url to connect to")
-	flag.StringVar(&key, "client", "", "The FedBOX application uuid")
-	flag.StringVar(&secret, "secret", "", "The FedBOX application secret")
-	flag.Parse()
+
+	ff.Parse(fs, os.Args[1:])
 	if serv != nil {
 		spammy.ServiceAPI = ap.IRI(*serv)
 	}
@@ -79,16 +81,16 @@ func main() {
 			}
 		}
 	}
-	if secret != "" {
-		spammy.OAuthSecret = secret
+	if *secret != "" {
+		spammy.OAuthSecret = *secret
 	}
-	if key == "" {
+	if *key == "" {
 		errf()("We need an application OAuth2 key to continue")
 		os.Exit(1)
 	}
 
-	spammy.OAuthKey = key
-	if err := spammy.LoadApplication(key); err != nil {
+	spammy.OAuthKey = *key
+	if err := spammy.LoadApplication(*key); err != nil {
 		errf()(err.Error())
 		return
 	}
