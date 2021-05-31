@@ -46,6 +46,14 @@ func errf(c ...client.Ctx) client.LogFn {
 	return logFn(c...).Errorf
 }
 
+func printItems (items map[ap.IRI]ap.Item) {
+	for _, it := range items {
+		if j, err := json.Marshal(it); err == nil {
+			fmt.Printf("%s: %s\n", it.GetType(), j)
+		}
+	}
+}
+
 func main() {
 	fs := flag.NewFlagSet("spammy", flag.ExitOnError)
 	var (
@@ -74,13 +82,6 @@ func main() {
 	spammy.ErrFn = errf
 	spammy.InfFn = infof
 
-	printItems := func(items map[ap.IRI]ap.Item) {
-		for _, it := range items {
-			if j, err := json.Marshal(it); err == nil {
-				fmt.Printf("%s: %s\n", it.GetType(), j)
-			}
-		}
-	}
 	if *secret != "" {
 		spammy.OAuthSecret = *secret
 	}
@@ -107,14 +108,17 @@ func main() {
 	}
 
 	actors, _ := spammy.CreateRandomActors(DefaultActorCount)
-	printItems(actors)
+	//printItems(actors)
 
 	objects, _ := spammy.CreateRandomObjects(DefaultObjectCount, actors)
-	printItems(objects)
+	//printItems(objects)
 
 	for iri, actor := range actors {
 		objects[iri] = actor
 	}
 	activities, _ := spammy.CreateRandomActivities(DefaultActivitiesCount, objects, actors)
-	printItems(activities)
+	//printItems(activities)
+	for iri, activity := range activities {
+		objects[iri] = activity
+	}
 }
