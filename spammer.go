@@ -334,21 +334,19 @@ func config(act *ap.Actor) oauth2.Config {
 	return conf
 }
 
-func C2SSign(ctxt context.Context, act *ap.Actor) client.RequestSignFn {
-	config := config(act)
-
-	handle := act.GetID().String()
-	if len(handle) == 0 {
-		handle = act.Name.First().String()
-	}
-	if len(handle) == 0 {
+func C2SSign(ctx context.Context, act *ap.Actor) client.RequestSignFn {
+	if act == nil {
 		return func(r *http.Request) error { return nil }
 	}
+	config := config(act)
 	return func(req *http.Request) error {
 		// set a custom http client to be used by the OAuth2 package, in our case, it has InsecureTLSCheck disabled
-		ctxt = context.WithValue(ctxt, oauth2.HTTPClient, httpClient)
-		time.Sleep(100 * time.Millisecond)
-		tok, err := config.PasswordCredentialsToken(ctxt, handle, DefaultPw)
+		//ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
+
+		dtx, cancelFn := context.WithTimeout(ctx, 200*time.Millisecond)
+		defer cancelFn()
+
+		tok, err := config.PasswordCredentialsToken(dtx, act.GetID().String(), DefaultPw)
 		if err != nil {
 			return err
 		}
@@ -370,8 +368,11 @@ func setSignFn(ctxt context.Context, f *client.C, activity ap.Item) error {
 	})
 }
 
-func ExecActivity(ctxt context.Context, f *client.C, activity ap.Item) (ap.Item, error) {
-	err := setSignFn(ctxt, f, activity)
+func ExecActivity(ctx context.Context, f *client.C, activity ap.Item) (ap.Item, error) {
+	dtx, cancelFn := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelFn()
+
+	err := setSignFn(ctx, f, activity)
 	if err != nil {
 		return nil, err
 	}
@@ -381,13 +382,12 @@ func ExecActivity(ctxt context.Context, f *client.C, activity ap.Item) (ap.Item,
 		act.Object = ap.FlattenProperties(act.Object)
 		return nil
 	})
-	time.Sleep(50 * time.Millisecond)
-	iri, ff, err := f.ToOutbox(ctxt, activity)
+	iri, ff, err := f.ToOutbox(dtx, activity)
 	if err != nil {
 		return nil, err
 	}
 	if len(iri) > 0 {
-		return f.Object(ctxt, iri)
+		return f.Object(ctx, iri)
 	}
 	fmt.Printf("%v", ff)
 	return nil, nil
@@ -398,8 +398,8 @@ type AuthorizeData struct {
 	State string
 }
 
-func CreateActorActivity(ctxt context.Context, f *client.C, ob ap.Item) (ap.Item, error) {
-	a, err := CreateActivity(ctxt, f, ob)
+func CreateActorActivity(ctx context.Context, f *client.C, ob ap.Item) (ap.Item, error) {
+	a, err := CreateActivity(ctx, f, ob)
 	if err != nil {
 		return nil, err
 	}
@@ -408,7 +408,7 @@ func CreateActorActivity(ctxt context.Context, f *client.C, ob ap.Item) (ap.Item
 	config := config(self)
 	config.Scopes = []string{"anonUserCreate"}
 
-	res, err := f.CtxGet(ctxt, config.AuthCodeURL(
+	res, err := f.CtxGet(ctx, config.AuthCodeURL(
 		"spammy//test##",
 		oauth2.SetAuthURLParam("actor", a.GetLink().String()),
 	))
@@ -431,7 +431,7 @@ func CreateActorActivity(ctxt context.Context, f *client.C, ob ap.Item) (ap.Item
 		} else {
 			errs = []error{errors.WrapWithStatus(res.StatusCode, errors.Newf(""), "invalid response")}
 		}
-		ErrFn()("errors: %s", errs)
+		//ErrFn()("errors: %s", errs)
 		return nil, errs[0]
 	}
 	d := AuthorizeData{}
@@ -463,7 +463,7 @@ func CreateActorActivity(ctxt context.Context, f *client.C, ob ap.Item) (ap.Item
 	return a, err
 }
 
-func CreateActivity(ctxt context.Context, f *client.C, ob ap.Item) (ap.Item, error) {
+func CreateActivity(ctx context.Context, f *client.C, ob ap.Item) (ap.Item, error) {
 	create := ap.Create{
 		Type:   ap.CreateType,
 		Object: ob,
@@ -479,7 +479,7 @@ func CreateActivity(ctxt context.Context, f *client.C, ob ap.Item) (ap.Item, err
 		return nil, err
 	}
 
-	err = setSignFn(ctxt, f, create)
+	err = setSignFn(ctx, f, create)
 	if err != nil {
 		return nil, err
 	}
@@ -493,13 +493,15 @@ func CreateActivity(ctxt context.Context, f *client.C, ob ap.Item) (ap.Item, err
 		return nil, err
 	}
 
-	time.Sleep(50 * time.Millisecond)
-	iri, final, err := f.ToOutbox(ctxt, create)
+	dtx, cancelFn := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelFn()
+
+	iri, final, err := f.ToOutbox(dtx, create)
 	if err != nil {
 		return final, err
 	}
 
-	it, err := f.Object(ctxt, iri)
+	it, err := f.Object(dtx, iri)
 	if err != nil {
 		return nil, err
 	}
@@ -516,16 +518,12 @@ func exec(cnt int, actFn func(context.Context, *client.C, ap.Item) (ap.Item, err
 	result := make(map[ap.IRI]ap.Item)
 	m := sync.Mutex{}
 
-	g, ctx := errgroup.WithContext(context.TODO())
-
 	for i := 0; i < cnt; i += MaxConcurrency {
+		g, gtx := errgroup.WithContext(context.TODO())
 		for j := i; j < i+MaxConcurrency && j < cnt; j++ {
 			f := client.New(client.SkipTLSValidation(true), client.SetErrorLogger(ErrFn), client.SetInfoLogger(InfFn))
 			g.Go(func() error {
-				dtx, cancelFn := context.WithTimeout(ctx, 5*time.Second)
-				defer cancelFn()
-
-				ob, err := actFn(dtx, f, itFn())
+				ob, err := actFn(gtx, f, itFn())
 				if err == nil && ob != nil {
 					m.Lock()
 					defer m.Unlock()
@@ -535,7 +533,7 @@ func exec(cnt int, actFn func(context.Context, *client.C, ap.Item) (ap.Item, err
 			})
 		}
 		if err := g.Wait(); err != nil {
-			ErrFn()(err.Error())
+			//ErrFn()(err.Error())
 		}
 	}
 	return result, nil
@@ -563,9 +561,8 @@ func CreateIndieAuthApplication(me *ap.Person) (ap.Item, error) {
 	if err != nil {
 		return nil, err
 	}
-	ErrFn()("Profile : %#v", profile)
-
-	return nil, err
+	// FIXME(marius): this needs to load the profile proper
+	return ap.IRI(profile), err
 }
 
 func CreateRandomActors(cnt int) (map[ap.IRI]ap.Item, error) {
@@ -602,7 +599,6 @@ func CreateRandomActivities(cnt int, objects map[ap.IRI]ap.Item, actors map[ap.I
 			return act
 		})
 		if err != nil {
-			ErrFn()(err.Error())
 			continue
 		}
 		for k, v := range actRes {
