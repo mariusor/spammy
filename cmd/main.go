@@ -49,9 +49,10 @@ func errf(c ...client.Ctx) client.LogFn {
 func main() {
 	fs := flag.NewFlagSet("spammy", flag.ExitOnError)
 	var (
-		key    = fs.String("client", "", "The application Uuid")
-		secret = fs.String("secret", "", "The application secret")
-		serv   = fs.String("url", spammy.ServiceAPI.String(), "The FedBOX url to connect to")
+		concurrent = fs.Int("concurrent", spammy.MaxConcurrency, "The number of concurrent requests to try")
+		key        = fs.String("client", "", "The application Uuid")
+		secret     = fs.String("secret", "", "The application secret")
+		serv       = fs.String("url", spammy.ServiceAPI.String(), "The FedBOX url to connect to")
 	)
 	logger.Formatter = &logrus.TextFormatter{
 		ForceColors:            true,
@@ -89,6 +90,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	spammy.MaxConcurrency = *concurrent
 	spammy.OAuthKey = *key
 	if err := spammy.LoadApplication(*key); err != nil {
 		errf()(err.Error())

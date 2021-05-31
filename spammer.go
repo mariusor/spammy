@@ -17,11 +17,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docker/docker/pkg/namesgenerator"
 	ap "github.com/go-ap/activitypub"
 	"github.com/go-ap/client"
 	"github.com/go-ap/errors"
 	h "github.com/go-ap/handlers"
+	"github.com/mariusor/spammy/internal/names"
 	"golang.org/x/oauth2"
 	"golang.org/x/sync/errgroup"
 	"hawx.me/code/indieauth"
@@ -163,7 +163,7 @@ func getRandomContent() []byte {
 }
 
 func getRandomName() []byte {
-	return []byte(namesgenerator.GetRandomName(10))
+	return []byte(names.GetRandomName(10))
 }
 
 func RandomActor(parent ap.Item) ap.Item {
@@ -218,14 +218,25 @@ func RandomObject(parent ap.Item) ap.Item {
 	return ob
 }
 
+var validForActorActivityTypes = ap.ActivityVocabularyTypes{
+	ap.UpdateType,
+	ap.LikeType,
+	ap.DislikeType,
+	ap.FlagType,
+	ap.BlockType,
+	ap.FollowType,
+	ap.IgnoreType,
+}
+
 var validForObjectActivityTypes = ap.ActivityVocabularyTypes{
+	ap.UpdateType,
 	ap.LikeType,
 	ap.DislikeType,
 	ap.DeleteType,
 	ap.FlagType,
 	ap.BlockType,
 	ap.FollowType,
-//	ap.IgnoreType,
+	ap.IgnoreType,
 }
 
 var validForActivityActivityTypes = ap.ActivityVocabularyTypes{
@@ -240,6 +251,9 @@ func getActivityTypeByObject(ob ap.Item) ap.ActivityVocabularyType {
 	}
 	if ap.ActivityTypes.Contains(ob.GetType()) {
 		return validForActivityActivityTypes[rand.Int()%len(validForActivityActivityTypes)]
+	}
+	if ap.ActorTypes.Contains(ob.GetType()) {
+		return validForActorActivityTypes[rand.Int()%len(validForActorActivityTypes)]
 	}
 	return validForObjectActivityTypes[rand.Int()%len(validForObjectActivityTypes)]
 }
@@ -499,7 +513,7 @@ func CreateActivity(ctxt context.Context, ob ap.Item) (ap.Item, error) {
 	return final, nil
 }
 
-const maxConcurrency = 5
+var MaxConcurrency = 1
 
 func exec(cnt int, actFn func(context.Context, ap.Item) (ap.Item, error), itFn func() ap.Item) (map[ap.IRI]ap.Item, error) {
 	result := make(map[ap.IRI]ap.Item)
@@ -507,8 +521,8 @@ func exec(cnt int, actFn func(context.Context, ap.Item) (ap.Item, error), itFn f
 
 	g, ctx := errgroup.WithContext(context.TODO())
 
-	for i := 0; i < cnt; i += maxConcurrency {
-		for j := i; j < i+maxConcurrency && j < cnt; j++ {
+	for i := 0; i < cnt; i += MaxConcurrency {
+		for j := i; j < i+MaxConcurrency && j < cnt; j++ {
 			g.Go(func() error {
 				dtx, cancelFn := context.WithTimeout(ctx, 5*time.Second)
 				defer cancelFn()
