@@ -28,19 +28,18 @@ import (
 )
 
 const (
-	Actors h.CollectionType = "actors"
-	DefaultPw = "asd"
+	Actors    h.CollectionType = "actors"
+	DefaultPw                  = "asd"
 )
 
 var (
-	httpClient  = http.DefaultClient
-	ServiceAPI  = ap.IRI("https://fedbox.local")
+	httpClient = http.DefaultClient
+	ServiceAPI = ap.IRI("https://fedbox.local")
 
 	OAuthKey    = "aa52ae57-6ec6-4ddd-afcc-1fcbea6a29c0"
 	OAuthSecret = "asd"
 
-	Application *ap.Actor          = nil
-	FedBOX      *client.C = nil
+	Application *ap.Actor = nil
 	ErrFn       func(c ...client.Ctx) client.LogFn
 	InfFn       func(c ...client.Ctx) client.LogFn
 
@@ -110,7 +109,7 @@ func getObjectTypes(data []byte) (ap.ActivityVocabularyType, ap.MimeType) {
 		if len(data) > 600 {
 			objectType = ap.ArticleType
 		}
-		if bytes.Contains(data, []byte{'<','s','v','g'}) {
+		if bytes.Contains(data, []byte{'<', 's', 'v', 'g'}) {
 			objectType = ap.DocumentType
 			contentType = "image/svg+xml"
 		}
@@ -284,11 +283,9 @@ func RandomActivity(ob ap.Item, parent ap.Item) *ap.Activity {
 	return act
 }
 
-func LoadApplication (key string) error {
-	if FedBOX == nil {
-		panic("FedBOX was not initialized")
-	}
-	actors, err := FedBOX.Object(context.TODO(), SelfIRI(key))
+func LoadApplication(key string) error {
+	f := client.New(client.SkipTLSValidation(true), client.SetErrorLogger(ErrFn), client.SetInfoLogger(InfFn))
+	actors, err := f.Object(context.TODO(), SelfIRI(key))
 	if err != nil {
 		return err
 	}
@@ -330,7 +327,7 @@ func config(act *ap.Actor) oauth2.Config {
 			conf.Endpoint.TokenURL = endpoints.OauthTokenEndpoint.GetLink().String()
 		}
 		if act.URL != nil {
-			conf.RedirectURL= act.URL.GetLink().String()
+			conf.RedirectURL = act.URL.GetLink().String()
 		}
 	}
 
@@ -350,7 +347,7 @@ func C2SSign(ctxt context.Context, act *ap.Actor) client.RequestSignFn {
 	return func(req *http.Request) error {
 		// set a custom http client to be used by the OAuth2 package, in our case, it has InsecureTLSCheck disabled
 		ctxt = context.WithValue(ctxt, oauth2.HTTPClient, httpClient)
-		time.Sleep(100*time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 		tok, err := config.PasswordCredentialsToken(ctxt, handle, DefaultPw)
 		if err != nil {
 			return err
@@ -373,8 +370,8 @@ func setSignFn(ctxt context.Context, f *client.C, activity ap.Item) error {
 	})
 }
 
-func ExecActivity(ctxt context.Context, activity ap.Item) (ap.Item, error) {
-	err := setSignFn(ctxt, FedBOX, activity)
+func ExecActivity(ctxt context.Context, f *client.C, activity ap.Item) (ap.Item, error) {
+	err := setSignFn(ctxt, f, activity)
 	if err != nil {
 		return nil, err
 	}
@@ -384,25 +381,25 @@ func ExecActivity(ctxt context.Context, activity ap.Item) (ap.Item, error) {
 		act.Object = ap.FlattenProperties(act.Object)
 		return nil
 	})
-	time.Sleep(50*time.Millisecond)
-	iri, ff, err := FedBOX.ToOutbox(ctxt, activity)
+	time.Sleep(50 * time.Millisecond)
+	iri, ff, err := f.ToOutbox(ctxt, activity)
 	if err != nil {
 		return nil, err
 	}
 	if len(iri) > 0 {
-		return FedBOX.Object(ctxt, iri)
+		return f.Object(ctxt, iri)
 	}
 	fmt.Printf("%v", ff)
 	return nil, nil
 }
 
 type AuthorizeData struct {
-	Code string
+	Code  string
 	State string
 }
 
-func CreateActorActivity(ctxt context.Context, ob ap.Item) (ap.Item, error) {
-	a, err := CreateActivity(ctxt, ob)
+func CreateActorActivity(ctxt context.Context, f *client.C, ob ap.Item) (ap.Item, error) {
+	a, err := CreateActivity(ctxt, f, ob)
 	if err != nil {
 		return nil, err
 	}
@@ -411,7 +408,7 @@ func CreateActorActivity(ctxt context.Context, ob ap.Item) (ap.Item, error) {
 	config := config(self)
 	config.Scopes = []string{"anonUserCreate"}
 
-	res, err := FedBOX.CtxGet(ctxt, config.AuthCodeURL(
+	res, err := f.CtxGet(ctxt, config.AuthCodeURL(
 		"spammy//test##",
 		oauth2.SetAuthURLParam("actor", a.GetLink().String()),
 	))
@@ -466,7 +463,7 @@ func CreateActorActivity(ctxt context.Context, ob ap.Item) (ap.Item, error) {
 	return a, err
 }
 
-func CreateActivity(ctxt context.Context, ob ap.Item) (ap.Item, error) {
+func CreateActivity(ctxt context.Context, f *client.C, ob ap.Item) (ap.Item, error) {
 	create := ap.Create{
 		Type:   ap.CreateType,
 		Object: ob,
@@ -482,7 +479,7 @@ func CreateActivity(ctxt context.Context, ob ap.Item) (ap.Item, error) {
 		return nil, err
 	}
 
-	err = setSignFn(ctxt, FedBOX, create)
+	err = setSignFn(ctxt, f, create)
 	if err != nil {
 		return nil, err
 	}
@@ -496,13 +493,13 @@ func CreateActivity(ctxt context.Context, ob ap.Item) (ap.Item, error) {
 		return nil, err
 	}
 
-	time.Sleep(50*time.Millisecond)
-	iri, final, err := FedBOX.ToOutbox(ctxt, create)
+	time.Sleep(50 * time.Millisecond)
+	iri, final, err := f.ToOutbox(ctxt, create)
 	if err != nil {
 		return final, err
 	}
 
-	it, err := FedBOX.Object(ctxt, iri)
+	it, err := f.Object(ctxt, iri)
 	if err != nil {
 		return nil, err
 	}
@@ -515,7 +512,7 @@ func CreateActivity(ctxt context.Context, ob ap.Item) (ap.Item, error) {
 
 var MaxConcurrency = 1
 
-func exec(cnt int, actFn func(context.Context, ap.Item) (ap.Item, error), itFn func() ap.Item) (map[ap.IRI]ap.Item, error) {
+func exec(cnt int, actFn func(context.Context, *client.C, ap.Item) (ap.Item, error), itFn func() ap.Item) (map[ap.IRI]ap.Item, error) {
 	result := make(map[ap.IRI]ap.Item)
 	m := sync.Mutex{}
 
@@ -523,11 +520,12 @@ func exec(cnt int, actFn func(context.Context, ap.Item) (ap.Item, error), itFn f
 
 	for i := 0; i < cnt; i += MaxConcurrency {
 		for j := i; j < i+MaxConcurrency && j < cnt; j++ {
+			f := client.New(client.SkipTLSValidation(true), client.SetErrorLogger(ErrFn), client.SetInfoLogger(InfFn))
 			g.Go(func() error {
 				dtx, cancelFn := context.WithTimeout(ctx, 5*time.Second)
 				defer cancelFn()
 
-				ob, err := actFn(dtx, itFn())
+				ob, err := actFn(dtx, f, itFn())
 				if err == nil && ob != nil {
 					m.Lock()
 					defer m.Unlock()
@@ -557,9 +555,9 @@ func CreateIndieAuthApplication(me *ap.Person) (ap.Item, error) {
 	config, _ := indieauth.Authentication("https://brutalinks.git", "https://brutalinks.git/auth/fedbox/callback")
 	config.Client = httpClient
 
-	endpoints := indieauth.Endpoints {
+	endpoints := indieauth.Endpoints{
 		Authorization: authURL,
-		Token: tokURL,
+		Token:         tokURL,
 	}
 	profile, err := config.Exchange(endpoints, "test")
 	if err != nil {

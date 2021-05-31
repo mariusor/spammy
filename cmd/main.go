@@ -71,7 +71,6 @@ func main() {
 		spammy.ServiceAPI = ap.IRI(*serv)
 	}
 
-	spammy.FedBOX = client.New(client.SkipTLSValidation(true), client.SetErrorLogger(errf), client.SetInfoLogger(infof))
 	spammy.ErrFn = errf
 	spammy.InfFn = infof
 
