@@ -63,7 +63,7 @@ func main() {
 		serv       = fs.String("url", spammy.ServiceAPI.String(), "The FedBOX url to connect to")
 	)
 	logger.Formatter = &logrus.TextFormatter{
-		ForceColors:            true,
+		DisableColors:          true,
 		TimestampFormat:        time.StampMilli,
 		FullTimestamp:          true,
 		DisableSorting:         true,
