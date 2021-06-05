@@ -6,10 +6,11 @@ require (
 	aletheia.icu/broccoli/fs v0.0.0-20200506212414-5bc1e2f86a59
 	github.com/andybalholm/brotli v1.0.3 // indirect
 	github.com/go-ap/activitypub v0.0.0-20210403114333-558da3636016
-	github.com/go-ap/client v0.0.0-20210527075003-0c5e4963d914
+	github.com/go-ap/client v0.0.0-20210601181211-991ee833bc96
 	github.com/go-ap/errors v0.0.0-20210527074045-78cc5b9dcc94
-	github.com/go-ap/handlers v0.0.0-20210527074728-1c14ce8a3768
+	github.com/go-ap/handlers v0.0.0-20210601180936-564fcb277a5b
 	github.com/golang/protobuf v1.5.2 // indirect
+	github.com/mariusor/qstring v0.0.0-20200204164351-5a99d46de39d // indirect
 	github.com/peterbourgon/ff v1.7.0
 	github.com/sirupsen/logrus v1.7.0
 	github.com/stretchr/testify v1.5.1 // indirect
