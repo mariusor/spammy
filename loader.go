@@ -2,12 +2,11 @@ package spammy
 
 import (
 	"context"
-	"sync"
-	"time"
-
 	ap "github.com/go-ap/activitypub"
 	"github.com/go-ap/client"
 	"golang.org/x/sync/errgroup"
+	"sync"
+	"time"
 )
 
 type loader struct {
@@ -19,8 +18,8 @@ type loader struct {
 
 func (l loader) loadFn (ctx context.Context, i ap.IRI) func() error {
 	return func() error {
-		dtx, cancelFn := context.WithTimeout(ctx, 500*time.Millisecond)
-		defer cancelFn()
+		dtx, _ := context.WithTimeout(ctx, 2*time.Second)
+		//defer cancelFn()
 
 		ob, err := l.f.CtxLoadIRI(dtx, i)
 		if err != nil {
@@ -62,8 +61,9 @@ func (l loader) wait(ctx context.Context, cancelFn func()) (map[ap.IRI]ap.Item, 
 	result := make(map[ap.IRI]ap.Item)
 	errors := make([]error, 0)
 
-	g := new(errgroup.Group)
+	g, gtx := errgroup.WithContext(ctx)
 	m := sync.Mutex{}
+	defer cancelFn()
 
 exit:
 	for {
@@ -73,8 +73,14 @@ exit:
 				cancelFn()
 				break exit
 			}
+		case <- ctx.Done():
+			cancelFn()
+			break exit
+		case <- gtx.Done():
+			cancelFn()
+			break exit
 		case i := <-l.queue:
-			g.Go(l.loadFn(ctx, i))
+			g.Go(l.loadFn(gtx, i))
 		case it := <-l.res:
 			m.Lock()
 			if it.GetType() != ap.TombstoneType {
@@ -100,7 +106,7 @@ func load(iri ap.IRI, concurrent int) (map[ap.IRI]ap.Item, []error) {
 	}
 
 	ctx, cancelFn := context.WithCancel(context.TODO())
-	defer cancelFn()
+	//defer cancelFn()
 
 	l.queue <- iri
 

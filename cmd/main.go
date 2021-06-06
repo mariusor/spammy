@@ -105,16 +105,40 @@ func main() {
 			spammy.Application, _ = ap.ToActor(app)
 		}
 	}
+	st := make(chan bool)
 
+	go ticker(st)
 	actors, _ := spammy.CreateRandomActors(DefaultActorCount, *concurrent)
-	infof()("Created %d actors", len(actors))
+	fmt.Printf("\nCreated %d actors\n", len(actors))
 
 	actors, _ = spammy.LoadActors(ap.IRI(*serv), *concurrent)
+	fmt.Printf("\nLoaded %d actors\n", len(actors))
+
 	objects, _ := spammy.CreateRandomObjects(DefaultObjectCount, *concurrent, actors)
-	infof()("Created %d objects", len(objects))
+	fmt.Printf("\nCreated %d objects\n", len(objects))
 
 	objects, _ = spammy.LoadObjects(ap.IRI(*serv), *concurrent)
-	activities, _ := spammy.CreateRandomActivities(DefaultActivitiesCount, *concurrent, objects, actors)
-	infof()("Executed %d activities", len(activities))
+	fmt.Printf("\nLoaded %d objects\n", len(objects))
 
+	activities, _ := spammy.CreateRandomActivities(DefaultActivitiesCount, *concurrent, objects, actors)
+	fmt.Printf("\nExecuted %d activities\n", len(activities))
+	st <- true
+}
+
+func ticker(stopCh <- chan bool) {
+	stop := false
+	for {
+		go func() {
+			fmt.Printf(".")
+			select {
+			case stop = <-stopCh:
+				fmt.Printf("\n")
+				return
+			}
+		}()
+		if stop {
+			break
+		}
+		time.Sleep(700*time.Millisecond)
+	}
 }

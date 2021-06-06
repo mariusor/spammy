@@ -246,7 +246,7 @@ var validForActivityActivityTypes = ap.ActivityVocabularyTypes{
 var validActivityTypes = append(validForObjectActivityTypes[:], validForActivityActivityTypes[:]...)
 
 func getActivityTypeByObject(ob ap.Item) ap.ActivityVocabularyType {
-	if ob != nil {
+	if ap.IsNil(ob) {
 		return validForObjectActivityTypes[rand.Int()%len(validForObjectActivityTypes)]
 	}
 	if ap.ActivityTypes.Contains(ob.GetType()) {
