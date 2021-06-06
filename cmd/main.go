@@ -108,17 +108,14 @@ func main() {
 	}
 
 	actors, _ := spammy.CreateRandomActors(DefaultActorCount)
-	//printItems(actors)
+	infof()("Created %d actors", len(actors))
 
+	actors, _ = spammy.LoadActors(ap.IRI(*serv), *concurrent)
 	objects, _ := spammy.CreateRandomObjects(DefaultObjectCount, actors)
-	//printItems(objects)
+	infof()("Created %d objects", len(objects))
 
-	for iri, actor := range actors {
-		objects[iri] = actor
-	}
+	objects, _ = spammy.LoadObjects(ap.IRI(*serv), *concurrent)
 	activities, _ := spammy.CreateRandomActivities(DefaultActivitiesCount, objects, actors)
-	//printItems(activities)
-	for iri, activity := range activities {
-		objects[iri] = activity
-	}
+	infof()("Executed %d activities", len(activities))
+
 }

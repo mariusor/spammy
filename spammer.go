@@ -28,8 +28,9 @@ import (
 )
 
 const (
-	Actors    h.CollectionType = "actors"
-	DefaultPw                  = "asd"
+	Actors      h.CollectionType = "actors"
+	Objects     h.CollectionType = "objects"
+	DefaultPw   = "asd"
 )
 
 var (
@@ -604,6 +605,46 @@ func CreateRandomActivities(cnt int, objects map[ap.IRI]ap.Item, actors map[ap.I
 		for k, v := range actRes {
 			result[k] = v
 		}
+	}
+	return result, nil
+}
+
+func LoadActivities(server ap.IRI, c int) (map[ap.IRI]ap.Item, []error) {
+	return load(h.Inbox.IRI(server), c)
+}
+
+func LoadActors(server ap.IRI, c int) (map[ap.IRI]ap.Item, []error) {
+	iri := h.Inbox.IRI(server)
+	iri += "?type=Create&object.type=Person&object.iri=!-"
+	creates, errs := load(iri, c)
+	if len(errs) > 0 {
+		return nil, errs
+	}
+	result := make(map[ap.IRI]ap.Item)
+	for _, act := range creates {
+		ap.OnActivity(act, func(a *ap.Activity) error {
+			ob := a.Object
+			result[ob.GetLink()] = ob
+			return nil
+		})
+	}
+	return result, nil
+}
+
+func LoadObjects(server ap.IRI, c int) (map[ap.IRI]ap.Item, []error) {
+	iri := h.Inbox.IRI(server)
+	iri += "?type=Create&object.iri=!-"
+	creates, errs := load(iri, c)
+	if len(errs) > 0 {
+		return nil, errs
+	}
+	result := make(map[ap.IRI]ap.Item)
+	for _, act := range creates {
+		ap.OnActivity(act, func(a *ap.Activity) error {
+			ob := a.Object
+			result[ob.GetLink()] = ob
+			return nil
+		})
 	}
 	return result, nil
 }
