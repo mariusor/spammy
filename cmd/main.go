@@ -90,7 +90,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	spammy.MaxConcurrency = *concurrent
 	spammy.OAuthKey = *key
 	if err := spammy.LoadApplication(*key); err != nil {
 		errf()(err.Error())
@@ -107,15 +106,15 @@ func main() {
 		}
 	}
 
-	actors, _ := spammy.CreateRandomActors(DefaultActorCount)
+	actors, _ := spammy.CreateRandomActors(DefaultActorCount, *concurrent)
 	infof()("Created %d actors", len(actors))
 
 	actors, _ = spammy.LoadActors(ap.IRI(*serv), *concurrent)
-	objects, _ := spammy.CreateRandomObjects(DefaultObjectCount, actors)
+	objects, _ := spammy.CreateRandomObjects(DefaultObjectCount, *concurrent, actors)
 	infof()("Created %d objects", len(objects))
 
 	objects, _ = spammy.LoadObjects(ap.IRI(*serv), *concurrent)
-	activities, _ := spammy.CreateRandomActivities(DefaultActivitiesCount, objects, actors)
+	activities, _ := spammy.CreateRandomActivities(DefaultActivitiesCount, *concurrent, objects, actors)
 	infof()("Executed %d activities", len(activities))
 
 }

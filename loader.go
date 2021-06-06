@@ -93,7 +93,7 @@ exit:
 
 func load(iri ap.IRI, concurrent int) (map[ap.IRI]ap.Item, []error) {
 	l := loader {
-		f:     client.New(client.SkipTLSValidation(true), client.SetErrorLogger(ErrFn), client.SetInfoLogger(InfFn)),
+		f:     client.New(client.SkipTLSValidation(true), client.SetErrorLogger(ErrFn)),
 		queue: make(chan ap.IRI, concurrent),
 		res:   make(chan ap.Item),
 		done:  make(chan bool, 1),
