@@ -10,7 +10,6 @@ require (
 	github.com/go-ap/errors v0.0.0-20210527074045-78cc5b9dcc94
 	github.com/go-ap/handlers v0.0.0-20210606153013-18b3766eadea
 	github.com/golang/protobuf v1.5.2 // indirect
-	github.com/mariusor/qstring v0.0.0-20200204164351-5a99d46de39d // indirect
 	github.com/peterbourgon/ff v1.7.0
 	github.com/sirupsen/logrus v1.7.0
 	github.com/stretchr/testify v1.5.1 // indirect

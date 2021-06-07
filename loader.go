@@ -16,7 +16,7 @@ type loader struct {
 	done  chan bool
 }
 
-func (l loader) loadFn (ctx context.Context, i ap.IRI) func() error {
+func (l loader) loadFn(ctx context.Context, i ap.IRI) func() error {
 	return func() error {
 		dtx, _ := context.WithTimeout(ctx, 2*time.Second)
 		//defer cancelFn()
@@ -26,7 +26,7 @@ func (l loader) loadFn (ctx context.Context, i ap.IRI) func() error {
 			return err
 		}
 		var (
-			next ap.Item
+			next  ap.Item
 			items ap.ItemCollection
 		)
 		if ob.GetType() == ap.OrderedCollectionType {
@@ -73,10 +73,10 @@ exit:
 				cancelFn()
 				break exit
 			}
-		case <- ctx.Done():
+		case <-ctx.Done():
 			cancelFn()
 			break exit
-		case <- gtx.Done():
+		case <-gtx.Done():
 			cancelFn()
 			break exit
 		case i := <-l.queue:
@@ -98,7 +98,7 @@ exit:
 }
 
 func load(iri ap.IRI, concurrent int) (map[ap.IRI]ap.Item, []error) {
-	l := loader {
+	l := loader{
 		f:     client.New(client.SkipTLSValidation(true), client.SetErrorLogger(ErrFn)),
 		queue: make(chan ap.IRI, concurrent),
 		res:   make(chan ap.Item),

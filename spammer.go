@@ -28,9 +28,8 @@ import (
 )
 
 const (
-	Actors      h.CollectionType = "actors"
-	Objects     h.CollectionType = "objects"
-	DefaultPw   = "asd"
+	Actors    h.CollectionType = "actors"
+	DefaultPw                  = "asd"
 )
 
 var (
@@ -285,7 +284,7 @@ func RandomActivity(ob ap.Item, parent ap.Item) *ap.Activity {
 }
 
 func LoadApplication(key string) error {
-	f := client.New(client.SkipTLSValidation(true), client.SetErrorLogger(ErrFn))
+	f := client.New(client.SkipTLSValidation(true), client.SetErrorLogger(ErrFn), client.SetInfoLogger(InfFn))
 	actors, err := f.Object(context.TODO(), SelfIRI(key))
 	if err != nil {
 		return err
@@ -503,26 +502,27 @@ func CreateActivity(ctx context.Context, f *client.C, ob ap.Item) (ap.Item, erro
 	}
 
 	/*
-	it, err := f.Object(dtx, iri)
-	if err != nil {
-		return nil, err
-	}
+		it, err := f.Object(dtx, iri)
+		if err != nil {
+			return nil, err
+		}
 
-	if j, err := json.Marshal(it); err == nil {
-		InfFn()("Activity: %s\n", j)
-	}
-	 */
+		if j, err := json.Marshal(it); err == nil {
+			InfFn()("Activity: %s\n", j)
+		}
+	*/
 	return final, nil
 }
 
 var MaxConcurrency = 1
 
-func exec(cnt, concurrency int, actFn func(context.Context, *client.C, ap.Item) (ap.Item, error), itFn func() ap.Item) (map[ap.IRI]ap.Item, error) {
+func exec(cnt, concurrency int, actFn func(context.Context, *client.C, ap.Item) (ap.Item, error), itFn func() ap.Item) (map[ap.IRI]ap.Item, []error) {
 	if concurrency > MaxConcurrency {
 		concurrency = MaxConcurrency
 	}
 
 	result := make(map[ap.IRI]ap.Item)
+	errors := make([]error, 0)
 	m := sync.Mutex{}
 
 	for i := 0; i < cnt; i += concurrency {
@@ -531,19 +531,22 @@ func exec(cnt, concurrency int, actFn func(context.Context, *client.C, ap.Item) 
 			f := client.New(client.SkipTLSValidation(true), client.SetErrorLogger(ErrFn))
 			g.Go(func() error {
 				ob, err := actFn(gtx, f, itFn())
-				if err == nil && ob != nil {
+				if err != nil {
+					return err
+				}
+				if ob != nil {
 					m.Lock()
 					defer m.Unlock()
 					result[ob.GetLink()] = ob
 				}
-				return err
+				return nil
 			})
 		}
 		if err := g.Wait(); err != nil {
-			//ErrFn()(err.Error())
+			errors = append(errors, err)
 		}
 	}
-	return result, nil
+	return result, errors
 }
 
 func CreateIndieAuthApplication(me *ap.Person) (ap.Item, error) {
@@ -572,13 +575,13 @@ func CreateIndieAuthApplication(me *ap.Person) (ap.Item, error) {
 	return ap.IRI(profile), err
 }
 
-func CreateRandomActors(cnt, conc int) (map[ap.IRI]ap.Item, error) {
+func CreateRandomActors(cnt, conc int) (map[ap.IRI]ap.Item, []error) {
 	return exec(cnt, conc, CreateActorActivity, func() ap.Item {
 		return RandomActor(self())
 	})
 }
 
-func CreateRandomObjects(cnt, conc int, actors map[ap.IRI]ap.Item) (map[ap.IRI]ap.Item, error) {
+func CreateRandomObjects(cnt, conc int, actors map[ap.IRI]ap.Item) (map[ap.IRI]ap.Item, []error) {
 	return exec(cnt, conc, CreateActivity, func() ap.Item {
 		actor := GetRandomItemFromMap(actors)
 		return RandomObject(actor)
@@ -587,7 +590,7 @@ func CreateRandomObjects(cnt, conc int, actors map[ap.IRI]ap.Item) (map[ap.IRI]a
 
 var typesNeedReasons = ap.ActivityVocabularyTypes{ap.BlockType, ap.FlagType, ap.IgnoreType}
 
-func CreateRandomActivities(cnt, conc int, objects map[ap.IRI]ap.Item, actors map[ap.IRI]ap.Item) (map[ap.IRI]ap.Item, error) {
+func CreateRandomActivities(cnt, conc int, objects map[ap.IRI]ap.Item, actors map[ap.IRI]ap.Item) (map[ap.IRI]ap.Item, []error) {
 	ob := GetRandomItemFromMap(objects)
 	act := GetRandomItemFromMap(actors)
 	return exec(cnt, conc, ExecActivity, func() ap.Item {
