@@ -21,10 +21,10 @@ import (
 	"github.com/go-ap/client"
 	"github.com/go-ap/errors"
 	h "github.com/go-ap/handlers"
+	"github.com/mariusor/spammy/indieauth"
 	"github.com/mariusor/spammy/internal/names"
 	"golang.org/x/oauth2"
 	"golang.org/x/sync/errgroup"
-	"hawx.me/code/indieauth"
 )
 
 const (
@@ -549,30 +549,28 @@ func exec(cnt, concurrency int, actFn func(context.Context, *client.C, ap.Item) 
 	return result, errors
 }
 
+const DefaultCallback = "https://brutalinks.local/auth/fedbox/callback"
+
 func CreateIndieAuthApplication(me *ap.Person) (ap.Item, error) {
 	auth := config(me)
 	authURL, err := url.Parse(auth.Endpoint.AuthURL)
 	if err != nil {
 		return nil, err
 	}
-	tokURL, err := url.Parse(auth.Endpoint.TokenURL)
+	iaURL, err := url.Parse(DefaultCallback)
 	if err != nil {
 		return nil, err
 	}
+	iaClientID := iaURL.Hostname()
 	// first we get the configuration for our client
-	config, _ := indieauth.Authentication("https://brutalinks.git", "https://brutalinks.git/auth/fedbox/callback")
-	config.Client = httpClient
+	client := indieauth.Client{ClientID: iaClientID, RedirectURL: iaURL.String()}
 
-	endpoints := indieauth.Endpoints{
-		Authorization: authURL,
-		Token:         tokURL,
-	}
-	profile, err := config.Exchange(endpoints, "test")
+	profile, err := client.Verify(context.TODO(), client.AuthnReqURL(authURL, iaClientID, "test-state"), "test", "test")
 	if err != nil {
 		return nil, err
 	}
 	// FIXME(marius): this needs to load the profile proper
-	return ap.IRI(profile), err
+	return ap.IRI(profile.String()), err
 }
 
 func CreateRandomActors(cnt, conc int) (map[ap.IRI]ap.Item, []error) {

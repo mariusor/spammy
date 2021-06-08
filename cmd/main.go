@@ -85,17 +85,14 @@ func main() {
 	if *secret != "" {
 		spammy.OAuthSecret = *secret
 	}
-	if *key == "" {
-		errf()("We need an application OAuth2 key to continue")
-		os.Exit(1)
-	}
 
 	spammy.OAuthKey = *key
-	if err := spammy.LoadApplication(*key); err != nil {
-		errf()(err.Error())
-		return
-	}
-	if false {
+	if len(*key) > 0 {
+		if err := spammy.LoadApplication(*key); err != nil {
+			errf()(err.Error())
+			return
+		}
+	} else {
 		app, err := spammy.CreateIndieAuthApplication(nil)
 		if err != nil {
 			errf()(err.Error())
@@ -104,6 +101,7 @@ func main() {
 		if app != nil {
 			spammy.Application, _ = ap.ToActor(app)
 		}
+		fmt.Printf("\nCreated IndieAuth app\n")
 	}
 	st := make(chan bool)
 
