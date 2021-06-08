@@ -11,11 +11,11 @@ require (
 	github.com/go-ap/handlers v0.0.0-20210606153013-18b3766eadea
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/peterbourgon/ff v1.7.0
+	github.com/peterhellberg/link v1.1.0
 	github.com/sirupsen/logrus v1.7.0
 	github.com/stretchr/testify v1.5.1 // indirect
-	golang.org/x/net v0.0.0-20210525063256-abc453219eb5 // indirect
+	golang.org/x/net v0.0.0-20210525063256-abc453219eb5
 	golang.org/x/oauth2 v0.0.0-20210514164344-f6687ab2804c
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	google.golang.org/appengine v1.6.7 // indirect
-	hawx.me/code/indieauth v1.0.2
 )
