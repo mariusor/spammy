@@ -106,20 +106,20 @@ func main() {
 	st := make(chan bool)
 
 	go ticker(st)
-	actors, _ := spammy.CreateRandomActors(DefaultActorCount, *concurrent)
-	fmt.Printf("\nCreated %d actors\n", len(actors))
+	actors, errs := spammy.CreateRandomActors(DefaultActorCount, *concurrent)
+	fmt.Printf("\nCreated %d actors (%d errors)\n", len(actors), len(errs))
 
 	actors, _ = spammy.LoadActors(ap.IRI(*serv), *concurrent)
 	fmt.Printf("\nLoaded %d actors\n", len(actors))
 
-	objects, _ := spammy.CreateRandomObjects(DefaultObjectCount, *concurrent, actors)
-	fmt.Printf("\nCreated %d objects\n", len(objects))
+	objects, errs := spammy.CreateRandomObjects(DefaultObjectCount, *concurrent, actors)
+	fmt.Printf("\nCreated %d objects (%d errors)\n", len(objects), len(errs))
 
 	objects, _ = spammy.LoadObjects(ap.IRI(*serv), *concurrent)
 	fmt.Printf("\nLoaded %d objects\n", len(objects))
 
-	activities, _ := spammy.CreateRandomActivities(DefaultActivitiesCount, *concurrent, objects, actors)
-	fmt.Printf("\nExecuted %d activities\n", len(activities))
+	activities, errs := spammy.CreateRandomActivities(DefaultActivitiesCount, *concurrent, objects, actors)
+	fmt.Printf("\nExecuted %d activities (%d errors)\n", len(activities), len(errs))
 	st <- true
 }
 
