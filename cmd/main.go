@@ -46,7 +46,7 @@ func errf(c ...client.Ctx) client.LogFn {
 	return logFn(c...).Errorf
 }
 
-func printItems (items map[ap.IRI]ap.Item) {
+func printItems(items map[ap.IRI]ap.Item) {
 	for _, it := range items {
 		if j, err := json.Marshal(it); err == nil {
 			fmt.Printf("%s: %s\n", it.GetType(), j)
@@ -108,12 +108,18 @@ func main() {
 	go ticker(st)
 	actors, errs := spammy.CreateRandomActors(DefaultActorCount, *concurrent)
 	fmt.Printf("\nCreated %d actors (%d errors)\n", len(actors), len(errs))
+	for _, err := range errs {
+		fmt.Fprintf(os.Stderr, "\t%s\n", err)
+	}
 
 	actors, _ = spammy.LoadActors(ap.IRI(*serv), *concurrent)
 	fmt.Printf("\nLoaded %d actors\n", len(actors))
 
 	objects, errs := spammy.CreateRandomObjects(DefaultObjectCount, *concurrent, actors)
 	fmt.Printf("\nCreated %d objects (%d errors)\n", len(objects), len(errs))
+	for _, err := range errs {
+		fmt.Fprintf(os.Stderr, "\t%s\n", err)
+	}
 
 	objects, _ = spammy.LoadObjects(ap.IRI(*serv), *concurrent)
 	fmt.Printf("\nLoaded %d objects\n", len(objects))
@@ -121,9 +127,12 @@ func main() {
 	activities, errs := spammy.CreateRandomActivities(DefaultActivitiesCount, *concurrent, objects, actors)
 	fmt.Printf("\nExecuted %d activities (%d errors)\n", len(activities), len(errs))
 	st <- true
+	for _, err := range errs {
+		fmt.Fprintf(os.Stderr, "\t%s\n", err)
+	}
 }
 
-func ticker(stopCh <- chan bool) {
+func ticker(stopCh <-chan bool) {
 	stop := false
 	for {
 		go func() {
@@ -137,6 +146,6 @@ func ticker(stopCh <- chan bool) {
 		if stop {
 			break
 		}
-		time.Sleep(700*time.Millisecond)
+		time.Sleep(700 * time.Millisecond)
 	}
 }
