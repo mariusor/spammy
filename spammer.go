@@ -334,7 +334,7 @@ func config(act *ap.Actor) oauth2.Config {
 	return conf
 }
 
-func C2SSign(ctx context.Context, act *ap.Actor) client.RequestSignFn {
+func C2SSign(ctx context.Context, act *ap.Actor, pw string) client.RequestSignFn {
 	if act == nil {
 		return func(r *http.Request) error { return nil }
 	}
@@ -355,7 +355,7 @@ func C2SSign(ctx context.Context, act *ap.Actor) client.RequestSignFn {
 		iri := act.GetID().String()
 		tok, ok := tokens[iri]
 		if !ok  {
-			incTok, err := config.PasswordCredentialsToken(dtx, iri, DefaultPw)
+			incTok, err := config.PasswordCredentialsToken(dtx, iri, pw)
 			if err != nil {
 				return err
 			}
@@ -367,14 +367,14 @@ func C2SSign(ctx context.Context, act *ap.Actor) client.RequestSignFn {
 	}
 }
 
-func setSignFn(ctxt context.Context, f *client.C, activity ap.Item) error {
+func setSignFn(ctxt context.Context, f *client.C, activity ap.Item, pw string) error {
 	return ap.OnActivity(activity, func(a *ap.Activity) error {
 		if a.Actor == nil {
 			return errors.Newf("Invalid actor when trying to sign C2S request")
 		}
 		actor, err := ap.ToActor(a.Actor)
 		if actor != nil {
-			f.SignFn(C2SSign(ctxt, actor))
+			f.SignFn(C2SSign(ctxt, actor, pw))
 		}
 		return err
 	})
@@ -384,7 +384,7 @@ func ExecActivity(ctx context.Context, f *client.C, activity ap.Item) (ap.Item, 
 	dtx, cancelFn := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelFn()
 
-	err := setSignFn(ctx, f, activity)
+	err := setSignFn(ctx, f, activity, pw)
 	if err != nil {
 		return nil, err
 	}
@@ -410,8 +410,8 @@ type AuthorizeData struct {
 	State string
 }
 
-func CreateActorActivity(ctx context.Context, f *client.C, ob ap.Item) (ap.Item, error) {
-	a, err := CreateActivity(ctx, f, ob)
+func CreateActorActivity(ctx context.Context, f *client.C, ob ap.Item, pw string) (ap.Item, error) {
+	a, err := CreateActivity(ctx, f, ob, pw)
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +475,7 @@ func CreateActorActivity(ctx context.Context, f *client.C, ob ap.Item) (ap.Item,
 	return a, err
 }
 
-func CreateActivity(ctx context.Context, f *client.C, ob ap.Item) (ap.Item, error) {
+func CreateActivity(ctx context.Context, f *client.C, ob ap.Item, pw string) (ap.Item, error) {
 	create := ap.Create{
 		Type:   ap.CreateType,
 		Object: ob,
@@ -491,7 +491,10 @@ func CreateActivity(ctx context.Context, f *client.C, ob ap.Item) (ap.Item, erro
 		return nil, err
 	}
 
-
+	err = setSignFn(ctx, f, create, pw)
+	if err != nil {
+		return nil, err
+	}
 
 	err = ap.OnActivity(create, func(act *ap.Activity) error {
 		act.Actor = ap.FlattenToIRI(act.Actor)
@@ -504,11 +507,6 @@ func CreateActivity(ctx context.Context, f *client.C, ob ap.Item) (ap.Item, erro
 
 	dtx, cancelFn := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelFn()
-
-	err = setSignFn(dtx, f, create)
-	if err != nil {
-		return nil, err
-	}
 
 	_, final, err := f.ToOutbox(dtx, create)
 	if err != nil {
@@ -530,7 +528,7 @@ func CreateActivity(ctx context.Context, f *client.C, ob ap.Item) (ap.Item, erro
 
 var MaxConcurrency = 1
 
-func exec(cnt, concurrency int, actFn func(context.Context, *client.C, ap.Item) (ap.Item, error), itFn func() ap.Item) (map[ap.IRI]ap.Item, []error) {
+func exec(cnt, concurrency int, actFn func(context.Context, *client.C, ap.Item, string) (ap.Item, error), itFn func() ap.Item) (map[ap.IRI]ap.Item, []error) {
 	if concurrency > MaxConcurrency {
 		concurrency = MaxConcurrency
 	}
@@ -544,7 +542,7 @@ func exec(cnt, concurrency int, actFn func(context.Context, *client.C, ap.Item) 
 		for j := i; j < i+concurrency && j < cnt; j++ {
 			f := client.New(client.SkipTLSValidation(true), client.SetErrorLogger(ErrFn))
 			g.Go(func() error {
-				ob, err := actFn(gtx, f, itFn())
+				ob, err := actFn(gtx, f, itFn(), DefaultPw)
 				if err != nil {
 					return err
 				}
