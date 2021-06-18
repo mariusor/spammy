@@ -338,19 +338,31 @@ func C2SSign(ctx context.Context, act *ap.Actor) client.RequestSignFn {
 	if act == nil {
 		return func(r *http.Request) error { return nil }
 	}
+	tokens := make(map[string]oauth2.Token)
+	m := sync.Mutex{}
 	config := config(act)
 	return func(req *http.Request) error {
 		// set a custom http client to be used by the OAuth2 package, in our case, it has InsecureTLSCheck disabled
 		//ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
 
 		dtx, cancelFn := context.WithTimeout(ctx, 200*time.Millisecond)
-		defer cancelFn()
+		defer func() {
+			cancelFn()
+			m.Unlock()
+		}()
 
-		tok, err := config.PasswordCredentialsToken(dtx, act.GetID().String(), DefaultPw)
-		if err != nil {
-			return err
+		m.Lock()
+		iri := act.GetID().String()
+		tok, ok := tokens[iri]
+		if !ok  {
+			incTok, err := config.PasswordCredentialsToken(dtx, iri, DefaultPw)
+			if err != nil {
+				return err
+			}
+			tok = *incTok
 		}
 		tok.SetAuthHeader(req)
+		tokens[iri] = tok
 		return nil
 	}
 }
@@ -479,10 +491,7 @@ func CreateActivity(ctx context.Context, f *client.C, ob ap.Item) (ap.Item, erro
 		return nil, err
 	}
 
-	err = setSignFn(ctx, f, create)
-	if err != nil {
-		return nil, err
-	}
+
 
 	err = ap.OnActivity(create, func(act *ap.Activity) error {
 		act.Actor = ap.FlattenToIRI(act.Actor)
@@ -495,6 +504,11 @@ func CreateActivity(ctx context.Context, f *client.C, ob ap.Item) (ap.Item, erro
 
 	dtx, cancelFn := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelFn()
+
+	err = setSignFn(dtx, f, create)
+	if err != nil {
+		return nil, err
+	}
 
 	_, final, err := f.ToOutbox(dtx, create)
 	if err != nil {
