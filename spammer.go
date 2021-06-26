@@ -345,7 +345,7 @@ func C2SSign(ctx context.Context, act *ap.Actor, pw string) client.RequestSignFn
 		// set a custom http client to be used by the OAuth2 package, in our case, it has InsecureTLSCheck disabled
 		//ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
 
-		dtx, cancelFn := context.WithTimeout(ctx, 200*time.Millisecond)
+		dtx, cancelFn := context.WithTimeout(ctx, 5*time.Second)
 		defer func() {
 			cancelFn()
 			m.Unlock()
@@ -380,7 +380,7 @@ func setSignFn(ctxt context.Context, f *client.C, activity ap.Item, pw string) e
 	})
 }
 
-func ExecActivity(ctx context.Context, f *client.C, activity ap.Item) (ap.Item, error) {
+func ExecActivity(ctx context.Context, f *client.C, activity ap.Item, pw string) (ap.Item, error) {
 	dtx, cancelFn := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelFn()
 

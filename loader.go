@@ -18,7 +18,7 @@ type loader struct {
 
 func (l loader) loadFn(ctx context.Context, i ap.IRI) func() error {
 	return func() error {
-		dtx, _ := context.WithTimeout(ctx, 2*time.Second)
+		dtx, _ := context.WithTimeout(ctx, 5*time.Second)
 		//defer cancelFn()
 
 		ob, err := l.f.CtxLoadIRI(dtx, i)
