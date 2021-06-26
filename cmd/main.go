@@ -61,6 +61,7 @@ func main() {
 		key        = fs.String("client", "", "The application Uuid")
 		secret     = fs.String("secret", "", "The application secret")
 		serv       = fs.String("url", spammy.ServiceAPI.String(), "The FedBOX url to connect to")
+		actorCount = fs.Int("clients", DefaultActorCount, "How many actors to create")
 	)
 	logger.Formatter = &logrus.TextFormatter{
 		DisableColors:          true,
@@ -106,7 +107,7 @@ func main() {
 	st := make(chan bool)
 
 	go ticker(st)
-	actors, errs := spammy.CreateRandomActors(DefaultActorCount, *concurrent)
+	actors, errs := spammy.CreateRandomActors(*actorCount, *concurrent)
 	fmt.Printf("\nCreated %d actors (%d errors)\n", len(actors), len(errs))
 	for _, err := range errs {
 		fmt.Fprintf(os.Stderr, "\t%s\n", err)
